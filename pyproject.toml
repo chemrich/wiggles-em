@@ -1,0 +1,103 @@
+[project]
+name = "wiggles-em"
+version = "0.1.0"
+description = "Viewer-neutral cryo-EM views: occupancy, heterogeneity, local resolution, and the refusals that keep them honest"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "chemrich" },
+]
+keywords = [
+    "cryo-em",
+    "cryoem",
+    "structural-biology",
+    "heterogeneity",
+    "occupancy",
+    "local-resolution",
+    "mrc",
+    "ccp4",
+    "emdb",
+    "molecular-visualization",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+# No runtime dependencies, deliberately. Two hosts depend on this package and
+# a third-party pin here becomes a constraint in both of them. The MRC reader
+# is `struct`, the .npy reader parses the header itself rather than importing
+# numpy, and the ensemble maths is a mean and a root-mean-square.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/chemrich/wiggles-em"
+Repository = "https://github.com/chemrich/wiggles-em"
+Issues = "https://github.com/chemrich/wiggles-em/issues"
+Changelog = "https://github.com/chemrich/wiggles-em/blob/main/CHANGELOG.md"
+
+[project.scripts]
+# `map_info` as a CLI, which is how mapinfo.py was already written to be run.
+wiggles-map-info = "wiggles_em.mapinfo:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wiggles_em"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+# Both extra suites are opt-in: CI must pass offline and with no viewer at
+# all, but these check contracts that mocks cannot — external APIs, and a real
+# viewer.
+addopts = "-m 'not network and not live'"
+markers = [
+    "network: hits a real external API; run before a release",
+    "live: drives a running viewer; CLEARS ITS SESSION. `pytest -m live`",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# Carried over from MCPymol, where this code lived until the split. These are
+# deliberate style choices rather than bugs:
+#   E701   single-line `if cond: stmt` bodies
+#   E501   a handful of long lines
+#   SIM105 try/except/pass preferred over contextlib.suppress here
+#   RUF001/RUF002/RUF003  intentional en dashes in prose strings, docstrings
+#          and comments. The docstrings quote real ranges ("±5–15%", "0–1")
+#          and a hyphen there would misstate them.
+ignore = ["E701", "E501", "SIM105", "RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+check_untyped_defs = true
