@@ -17,9 +17,20 @@ See the Wiggles compendium entry `occupancy-two-senses`.
 
 from __future__ import annotations
 
-from wiggles_em.atoms import Atom, altloc_groups, fetch_atoms, group_by_residue
-from wiggles_em.bfactors import preservation_note, stash_bfactors
-from wiggles_em.port import PymolPort, call
+from wiggles_em.atoms import Atom, altloc_groups, group_by_residue
+from wiggles_em.scene import (
+    ColorByScalar,
+    ColorFlat,
+    Hide,
+    Label,
+    Legend,
+    Rep,
+    ScalarField,
+    Scene,
+    Sel,
+    Sense,
+    Show,
+)
 
 # Occupancy at or above this is "full" for reporting purposes. Occupancies are
 # stored as float32 and refined, so exact 1.0 comparison mislabels ordinary
@@ -63,35 +74,34 @@ def _stats(atoms: list[Atom]) -> dict[str, float | int]:
     }
 
 
-def occupancy_view(
-    port: PymolPort,
-    obj: str,
-    *,
-    preserve_bfactors: bool = True,
-) -> str:
+def occupancy_view(atoms: list[Atom], obj: str) -> tuple[str, Scene]:
     """Colour ``obj`` by per-atom occupancy, de-emphasising partial atoms.
 
-    Occupancy is pushed into the B-factor column so PyMOL's ``spectrum`` can
-    colour by it — the same mechanism MCPymol's ``conservation_view`` uses.
-    That is destructive to B-factors, so by default the originals are saved
-    (see :mod:`wiggles_em.bfactors`) and the report says how to restore them.
-
     If nothing in the object is partially occupied, this says so plainly and
-    does not colour. A spectrum across a constant value is a rainbow that means
+    draws nothing. A spectrum across a constant value is a rainbow that means
     nothing, and a viewer that renders one is inviting a false reading.
 
+    The domain is a fixed ``(0.0, 1.0)`` and not the observed range, which is
+    the whole reason :class:`~wiggles_em.scene.ColorByScalar` demands one: a
+    model sitting between 0.95 and 1.0 stretched over its own range becomes a
+    full rainbow implying variation that is not there.
+
+    How the scalar reaches the viewer is a backend's business. Both route
+    per-atom values through the B-factor column, but PyMOL has one copy of the
+    object and must stash the originals, while protean builds a display copy —
+    so the "your B-factors were overwritten" caveat comes from the backend,
+    not from here.
+
     Args:
-        port: A live or fake PyMOL port.
-        obj: Object or selection name.
-        preserve_bfactors: Save B-factors before overwriting, so
-            ``restore_bfactors`` can put them back.
+        atoms: Every atom in ``obj``, already read.
+        obj: Object or selection name, for the scene's selections and the report.
 
     Returns:
-        A report, always ending with the sense-1 legend.
+        A report ending with the sense-1 legend, and the scene to draw.
     """
-    atoms = fetch_atoms(port, obj)
     st = _stats(atoms)
     lines = [f"occupancy_view({obj})", ""]
+    legend = Legend(SENSE_1_LEGEND, sense=Sense.ATOM_OCCUPANCY)
 
     if st["n_partial"] == 0:
         lines += [
@@ -104,15 +114,23 @@ def occupancy_view(
             "",
             SENSE_1_LEGEND,
         ]
-        return "\n".join(lines)
+        # A scene of nothing but a legend does not draw — see Scene.draws. The
+        # refusal is the result, and it has to be distinguishable from a view
+        # that drew something.
+        return "\n".join(lines), Scene([legend])
 
-    stashed = stash_bfactors(obj, atoms) if preserve_bfactors else 0
-    call(port, "alter", obj, "b=q")
-    call(port, "spectrum", "b", "red_white_blue", obj, minimum=0, maximum=1)
-    # Partial atoms shown as sticks so they read as "modelled alternative"
-    # rather than as the single truth. Note this must NOT exclude protein:
-    # side-chain alternates are the main thing this view exists to show.
-    call(port, "show", "sticks", f"({obj}) and q<{FULL_OCCUPANCY}")
+    target = Sel.obj(obj)
+    field = ScalarField.per_atom(
+        [((a.chain, a.resi, a.name, a.alt), a.q) for a in atoms]
+    )
+    scene = Scene([
+        ColorByScalar(target, field, domain=(0.0, 1.0), palette="red_white_blue"),
+        # Partial atoms shown as sticks so they read as "modelled alternative"
+        # rather than as the single truth. Note this must NOT exclude protein:
+        # side-chain alternates are the main thing this view exists to show.
+        Show(target & Sel.lt("q", FULL_OCCUPANCY), Rep.STICKS),
+        legend,
+    ])
 
     lines += [
         f"  {st['n_partial']} of {st['n_atoms']} atoms partially occupied (q < {FULL_OCCUPANCY}).",
@@ -127,16 +145,12 @@ def occupancy_view(
             "  suggests a different refinement protocol — worth checking.",
             "",
         ]
-    if preserve_bfactors:
-        lines += [preservation_note(obj, stashed), ""]
-    else:
-        lines += ["  WARNING: B-factors overwritten and not preserved.", ""]
 
     lines.append(SENSE_1_LEGEND)
-    return "\n".join(lines)
+    return "\n".join(lines), scene
 
 
-def altloc_view(port: PymolPort, obj: str, *, label: bool = True) -> str:
+def altloc_view(atoms: list[Atom], obj: str, *, label: bool = True) -> tuple[str, Scene]:
     """Show every alternate conformation at once, one colour per altloc group.
 
     Occupancies go into the labels rather than being implied by the colouring,
@@ -144,16 +158,16 @@ def altloc_view(port: PymolPort, obj: str, *, label: bool = True) -> str:
     weight discards it, which is the commonest way this view is got wrong.
 
     Args:
-        port: A live or fake PyMOL port.
+        atoms: Every atom in ``obj``, already read.
         obj: Object or selection name.
         label: Label one atom per alternate residue with its altloc and occupancy.
 
     Returns:
-        A report, always ending with the sense-1 legend.
+        A report ending with the sense-1 legend, and the scene to draw.
     """
-    atoms = fetch_atoms(port, obj)
     groups = altloc_groups(atoms)
     lines = [f"altloc_view({obj})", ""]
+    legend = Legend(SENSE_1_LEGEND, sense=Sense.ATOM_OCCUPANCY)
 
     if not groups:
         lines += [
@@ -166,18 +180,20 @@ def altloc_view(port: PymolPort, obj: str, *, label: bool = True) -> str:
             "",
             SENSE_1_LEGEND,
         ]
-        return "\n".join(lines)
+        return "\n".join(lines), Scene([legend])
 
-    call(port, "hide", "everything", obj)
-    call(port, "show", "cartoon", obj)
-    call(port, "color", "grey70", obj)
+    target = Sel.obj(obj)
+    ops = [
+        Hide(target, Rep.EVERYTHING),
+        Show(target, Rep.CARTOON),
+        ColorFlat(target, "grey70"),
+    ]
 
     per_group: list[str] = []
     for i, alt in enumerate(groups):
         colour = _ALTLOC_COLOURS[i % len(_ALTLOC_COLOURS)]
-        sel = f"({obj}) and alt {alt}"
-        call(port, "show", "sticks", sel)
-        call(port, "color", colour, sel)
+        sel = target & Sel.prop("alt", alt)
+        ops += [Show(sel, Rep.STICKS), ColorFlat(sel, colour)]
         members = [a for a in atoms if a.alt == alt]
         occ = sorted({round(a.q, 3) for a in members})
         occ_text = ", ".join(f"{q:g}" for q in occ[:4]) + (" …" if len(occ) > 4 else "")
@@ -188,13 +204,16 @@ def altloc_view(port: PymolPort, obj: str, *, label: bool = True) -> str:
     if label:
         # One label per alternate residue — labelling every atom is unreadable.
         for alt in groups:
-            call(
-                port,
-                "label",
-                f"({obj}) and alt {alt} and name CA",
-                f'"{alt} %.2f" % q',
+            ops.append(
+                Label(
+                    target & Sel.prop("alt", alt) & Sel.prop("name", "CA"),
+                    f"{alt} %.2f",
+                    fields=("q",),
+                )
             )
 
+    ops.append(legend)
+    scene = Scene(ops)
     residues = group_by_residue([a for a in atoms if a.alt.strip()])
     lines += [
         f"  {len(groups)} altloc group(s) across {len(residues)} residue(s).",
@@ -212,4 +231,4 @@ def altloc_view(port: PymolPort, obj: str, *, label: bool = True) -> str:
         "",
         SENSE_1_LEGEND,
     ]
-    return "\n".join(lines)
+    return "\n".join(lines), scene

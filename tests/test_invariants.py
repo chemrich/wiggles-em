@@ -146,9 +146,14 @@ def test_both_occupancy_tools_name_their_sense(tmp_path):
     """The compendium's single most important design decision: a legend that
     quietly omits which sense it means makes the two tools interchangeable,
     and they are not."""
+    from conftest import make_atoms
+
     from wiggles_em.occupancy import occupancy_view
 
-    sense1 = occupancy_view(FakePort({"iterate_to_list": list(ROWS)}), "obj")
+    # occupancy_view has crossed the Scene seam and takes atoms; composition_view
+    # has not yet. The invariant is about what the two reports say, so it holds
+    # across the migration — which is the point of converting a module at a time.
+    sense1, _ = occupancy_view(make_atoms(ROWS), "obj")
     sense2 = composition_view(FakePort({"count_atoms": lambda sel: 10}), "obj", {"chain A": 0.4})
 
     # Each report must *declare* its own sense, not merely mention the word.
