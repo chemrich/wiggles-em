@@ -190,3 +190,16 @@ def test_default_object_name_strips_compound_suffixes(tmp_path):
     port = loaded_port("emd_1234")
     out = load_map(port, p)
     assert "-> emd_1234" in out
+
+
+def test_the_longest_matching_token_wins(tmp_path):
+    """'sharp' occurs inside 'unsharp', and SHARPENED is declared first, so a
+    file named emd_1234_unsharpened.mrc was suggested as *sharpened* —
+    inverting the one thing its depositor had taken the trouble to record."""
+    from test_mapinfo import write_map
+
+    header = read_map_header(write_map(tmp_path, "emd_1234_unsharpened.mrc"))
+    evidence = gather_evidence(header, tmp_path / "emd_1234_unsharpened.mrc")
+
+    assert evidence.suggested is not Provenance.SHARPENED, evidence.reasons
+    assert any("unsharp" in reason for reason in evidence.reasons), evidence.reasons

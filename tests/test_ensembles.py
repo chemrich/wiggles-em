@@ -13,6 +13,7 @@ from wiggles_em.ensembles import (
     morph_states,
     per_atom_spread,
     per_residue_spread,
+    radial_spread,
 )
 from wiggles_em.port import FakePort, PortError
 from wiggles_em.scene import ColorByScalar, Morph, SizeByScalar
@@ -20,6 +21,7 @@ from wiggles_em.scene import ColorByScalar, Morph, SizeByScalar
 
 def spread(coords, rows, **kw):
     """Run ensemble_spread_view over coordinates and rows, and render it."""
+    kw.setdefault("superposed", True)
     return draw(ensemble_spread_view, rows, coords, "obj", **kw)
 
 
@@ -210,3 +212,85 @@ def test_other_morph_errors_still_raise():
 
     with pytest.raises(PortError, match="Invalid selection"):
         render(morph_states([1, 1], "obj"), port=BrokenPort({}))
+
+
+# ── rigid-body drift is not flexibility (MCPymol PR #58) ───────────────────
+
+
+def test_a_rigidly_translated_ensemble_is_flagged_not_reported_as_flexible():
+    """Spread measures whatever separates the states, including an offset that
+    says nothing about flexibility.
+
+    A viewer loads a multi-model PDB's models as states without aligning them,
+    so an MD trajectory that drifted across its box reports that drift at every
+    residue and paints an internally rigid molecule red end to end.
+    """
+    rigid = [
+        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0)],
+        [(9.0, 0.0, 0.0), (10.0, 0.0, 0.0), (11.0, 0.0, 0.0)],
+    ]
+    rows = [
+        ("A", "1", "MET", "CA", "", 1.0, 20.0),
+        ("A", "2", "ALA", "CA", "", 1.0, 20.0),
+        ("A", "3", "SER", "CA", "", 1.0, 20.0),
+    ]
+    d = spread(rigid, rows, superposed=False)
+
+    assert "RIGID-BODY" in d.report, d.report
+    assert "not flexibility" in d.report
+
+
+def test_a_rigid_rotation_is_caught_too():
+    """A centroid check alone would miss this: rotating about the centroid
+    leaves the centroids identical and still inflates the spread."""
+    rows = [
+        ("A", "1", "MET", "CA", "", 1.0, 20.0),
+        ("A", "2", "ALA", "CA", "", 1.0, 20.0),
+    ]
+    rotated = [
+        [(-1.0, 0.0, 0.0), (1.0, 0.0, 0.0)],
+        [(0.0, -1.0, 0.0), (0.0, 1.0, 0.0)],  # same shape, turned 90 degrees
+    ]
+    d = spread(rotated, rows, superposed=False)
+    assert "RIGID-BODY" in d.report, d.report
+
+
+def test_a_genuinely_flexible_ensemble_is_not_flagged():
+    """The check must not fire on the case the view exists for."""
+    rows = [
+        ("A", "1", "MET", "CA", "", 1.0, 20.0),
+        ("A", "2", "ALA", "CA", "", 1.0, 20.0),
+    ]
+    flexing = [
+        [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)],
+        [(0.0, 0.0, 0.0), (5.0, 3.0, 0.0)],  # one end moves, the other does not
+    ]
+    d = spread(flexing, rows, superposed=True)
+    assert "RIGID-BODY" not in d.report, d.report
+
+
+def test_the_threshold_separates_a_hinge_from_a_drift():
+    """Why RIGID_RATIO is wide: an asymmetric conformational change moves the
+    centroid, so positional spread exceeds radial spread on its own."""
+    hinge = [
+        [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)],
+        [(0.0, 0.0, 0.0), (5.0, 3.0, 0.0)],
+    ]
+    rigid = [
+        [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)],
+        [(9.0, 0.0, 0.0), (14.0, 0.0, 0.0)],
+    ]
+    # A truly rigid pair has a radial spread of exactly zero, so it separates
+    # from a hinge by an unbounded margin rather than a tuned one.
+    assert max(radial_spread(rigid)) == pytest.approx(0.0)
+    assert max(radial_spread(hinge)) > 0.0
+
+
+def test_the_report_says_whether_the_states_were_fitted():
+    """`superposed` is a claim the host makes, so the report has to carry it —
+    a reader cannot otherwise tell a fitted ensemble from an unfitted one."""
+    rows = [("A", "1", "MET", "CA", "", 1.0, 20.0)]
+    coords = [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]]
+
+    assert "were superposed" in spread(coords, rows, superposed=True).report
+    assert "NOT superposed" in spread(coords, rows, superposed=False).report

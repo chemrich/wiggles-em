@@ -39,7 +39,7 @@ because that spread *is* the density change.
 
 from __future__ import annotations
 
-from wiggles_em.density import DEFAULT_SIGMA, to_absolute, to_sigma
+from wiggles_em.density import DEFAULT_SIGMA, to_absolute, to_sigma, usable_rms
 from wiggles_em.heterogeneity import Ensemble, Method, loaded_ensemble
 from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
@@ -96,9 +96,11 @@ def contains_absence_claim(text: str) -> str | None:
 def frame_levels(ensemble: Ensemble, absolute: float) -> list[float | None]:
     """One sigma level per frame for a shared absolute contour.
 
-    ``None`` for a frame whose header reports zero RMS, where sigma is
-    undefined — reported rather than silently substituted, because a
-    substituted level would draw a frame at a contour nobody chose.
+    ``None`` for a frame whose header cannot define a sigma scale — a zero
+    RMS, or MRC's ``rms=-1`` "statistics not computed" marker. Reported rather
+    than silently substituted, because a substituted level would draw a frame
+    at a contour nobody chose, and the negative case divides cleanly enough to
+    produce a plausible wrong one.
     """
     levels: list[float | None] = []
     for header in ensemble.headers:
@@ -178,15 +180,32 @@ def latent_traverse_view(
             ]
         ), Scene()
 
-    first = ensemble.headers[0]
+    no_usable_rms = PortError(
+        f"no frame of {ensemble_name!r} has a usable RMS in its header, so an "
+        f"absolute contour level cannot be converted to the sigma a viewer "
+        f"contours in. The headers may be stale or the maps unnormalised."
+    )
+
+    # Anchor the absolute level on the first header that can define a sigma
+    # scale, not simply on frame 0. A header carrying rms=0, or MRC's rms=-1
+    # "statistics not computed" marker, converts nothing — and taking it
+    # anyway yielded an anchor of dmean, a number unrelated to the level asked
+    # for, which was then applied to every other frame. A level already given
+    # in absolute units needs no anchor at all.
+    anchor = next((h for h in ensemble.headers if usable_rms(h)), None)
+
     if level is None:
-        absolute = to_absolute(first, DEFAULT_SIGMA)
+        if anchor is None:
+            raise no_usable_rms
+        absolute = to_absolute(anchor, DEFAULT_SIGMA)
         used_default = True
     elif units == "absolute":
         absolute = float(level)
         used_default = False
     else:
-        absolute = to_absolute(first, float(level))
+        if anchor is None:
+            raise no_usable_rms
+        absolute = to_absolute(anchor, float(level))
         used_default = False
 
     levels = frame_levels(ensemble, absolute)

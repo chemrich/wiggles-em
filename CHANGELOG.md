@@ -107,6 +107,48 @@ unstated, and the fix for each is to remove a default rather than document one.
   the whole object, so ANDing `rank 0` with a per-part selection matched
   nothing for every part but one, and no percentages were ever drawn.
 
+### Fixed — re-synced with MCPymol `origin/main`
+
+The extraction was taken from PR #55's branch head. MCPymol's copy then went
+through a review that landed **#57** ("the four data-destroying defects"),
+**#58** ("the remaining review findings, and close the gap that hid them") and
+the merge of #55 — 711 insertions this package had none of. Ported, with the
+upstream tests, each placed where the seam now puts it rather than where it
+came from.
+
+- **Selection identifiers are quoted.** A blank chain left `chain  and resi 2`,
+  where PyMOL takes `and` as the chain name and the selection stops being
+  scoped to the object — so `qscore_view` on a validation file with no chain
+  attribute ran `alter <every atom loaded>`, and `restore_bfactors` only
+  restores the object it is given. A negative residue number is a *range*:
+  `resi -3` means 1-3. Both were found upstream against PyMOL 3.1.0, and this
+  package had reproduced both independently. Quoting lives in the PyMOL
+  backend, not in `atoms`: it is PyMOL's grammar and no other viewer shares it.
+  The `+`-list grouping survives for plainly numeric identifiers and anything
+  else is quoted and OR-ed inside its chain's term, since a quoted value in a
+  `+` list is grammar nobody here has checked.
+- **A negative RMS is not a sigma scale.** MRC writes `rms=-1` for "statistics
+  not computed", and it divides cleanly, so `to_sigma(0.05)` returned `-2.05`
+  and a resolution ramp ran backwards. `to_absolute` had no guard at all.
+- **The first B-factor stash wins, and a restore clears it.** Every caller
+  reads `b` *after* an earlier view may have overwritten it, so a second stash
+  saved that view's output as the user's data and `restore_bfactors` then wrote
+  it back and reported success.
+- **Provenance takes the longest matching token**, so `unsharpened` stops being
+  read as `sharp`.
+- **`loaded_map(obj, port)` evicts a record whose object has left the session**,
+  and `density_view` names the file its header came from — the only thing that
+  makes a same-name substitution visible.
+- **`latent_traverse_view` anchors on the first frame with a usable RMS**, not
+  frame 0.
+- **`ensemble_spread_view` requires `superposed`.** Spread measures whatever
+  separates the states, including a rigid-body offset that is not flexibility.
+  Fitting stays with the host, which has the session and a superposition
+  routine already — but the flag is a claim, so `radial_spread` checks it
+  against the data: distance-to-own-centroid is invariant under translation and
+  rotation, and a positional spread that dwarfs it means rigid motion whatever
+  the caller said.
+
 ### Notes
 
 Between 2026-08-09 and this split the code lived inside MCPymol as

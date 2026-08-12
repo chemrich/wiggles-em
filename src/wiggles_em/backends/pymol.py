@@ -19,6 +19,7 @@ and ``mset`` are PyMOL's words for things the scene describes without them.
 from __future__ import annotations
 
 import json
+import re
 from typing import cast
 
 from wiggles_em.atoms import fetch_atoms
@@ -75,33 +76,94 @@ _REPS = {
 }
 
 
+#: Residue identifiers safe to put in a ``+``-separated list unquoted. A
+#: ``+`` list is the difference between one term and 1123 of them, and mixing
+#: a quoted value into one — ``resi "1"+"-3"`` — relies on grammar this
+#: package has not checked against a live PyMOL. Plain digits need no quoting
+#: and are the overwhelming majority, so they take the compact path and
+#: everything else takes the long one.
+_PLAIN_RESI = re.compile(r"^\d+$")
+
+
+def _no_quote(value: str) -> str:
+    """Return ``value``, or raise if it carries a double quote."""
+    if '"' in value:
+        raise ValueError(
+            f"identifier {value!r} contains a double quote, which cannot appear "
+            f"in a chain, residue or object identifier — the file is probably "
+            f"corrupt, and guessing at it is how the blank-chain bug behaved"
+        )
+    return value
+
+
+def quote(value: str) -> str:
+    """Quote an identifier read off an atom, for use in a PyMOL selection.
+
+    PyMOL parses bare identifiers, so interpolating a raw ``chain`` or ``resi``
+    is unsafe for the two shapes that occur constantly in real depositions:
+
+    * A **blank chain** — every atom in a file with no chain ID — leaves
+      ``chain  and resi 2``, where ``and`` is consumed as the chain name. The
+      selection stops being scoped to the object and matches the whole session.
+    * A **negative residue number**, an expression-tag remnant in most NMR and
+      EM entries, is read as a *range*: ``resi -3`` means 1-3, so one residue's
+      value gets written across three.
+
+    Both were verified against PyMOL 3.1.0 upstream, in both directions.
+    Quoting is a no-op for ordinary values, so every call site quotes rather
+    than testing whether it needs to.
+
+    Raises:
+        ValueError: ``value`` contains a double quote, which would close the
+            quoting and hand the rest of the string to the parser. Nothing in
+            the PDB or mmCIF grammar puts one in a chain or residue
+            identifier, so this is a corrupt file rather than a case to
+            support — and guessing at it is how the blank-chain bug behaved.
+    """
+    return f'"{_no_quote(value)}"'
+
+
 def render_selection(sel: Sel) -> str:
     """Lower a :class:`Sel` into a PyMOL selection expression."""
     if sel.kind == "obj":
-        return f"({sel.value})"
+        # Parenthesised rather than quoted: PyMOL takes an object name bare.
+        # Still checked for a quote, because an object name reaches here from
+        # a tool argument — `m" or all` would parenthesise into
+        # `(m" or all)` and select the session.
+        return f"({_no_quote(str(sel.value))})"
     if sel.kind == "all":
         return "all"
     if sel.kind == "prop":
-        return f"{sel.key} {sel.value}"
+        return f"{sel.key} {quote(str(sel.value))}"
     if sel.kind == "lt":
         return f"{sel.key}<{sel.value}"
     if sel.kind == "residues":
         residues = cast("tuple[tuple[str, str], ...]", sel.value)
         if not residues:
             return "none"
-        # One term per *chain*, not per residue. PyMOL takes a `+`-separated
-        # residue list, so 1123 scored residues in one chain become one term
-        # rather than 1123 parenthesised `or`s that PyMOL evaluates
-        # individually across the whole object. The list is emitted verbatim
-        # and never collapsed into ranges: turning 5 and 7 into 5-7 would
-        # silently add residue 6 to the set.
+        # One term per *chain*, not per residue: 1123 scored residues in one
+        # chain become one term rather than 1123 parenthesised `or`s that
+        # PyMOL evaluates individually across the whole object.
+        #
+        # Numbers are never collapsed into ranges — turning 5 and 7 into 5-7
+        # would silently add residue 6 — and anything not plainly numeric is
+        # quoted and OR-ed inside its chain's term rather than joined with
+        # `+`, because a quoted value in a `+` list is grammar this package
+        # has not checked.
         by_chain: dict[str, list[str]] = {}
         for chain, resi in residues:
             by_chain.setdefault(chain, []).append(resi)
-        terms = [
-            f"(chain {chain} and resi {'+'.join(numbers)})"
-            for chain, numbers in by_chain.items()
-        ]
+
+        terms = []
+        for chain, numbers in by_chain.items():
+            plain = [n for n in numbers if _PLAIN_RESI.match(n)]
+            odd = [n for n in numbers if not _PLAIN_RESI.match(n)]
+            clauses = []
+            if plain:
+                clauses.append(f"resi {'+'.join(plain)}")
+            clauses += [f"resi {quote(n)}" for n in odd]
+            body = clauses[0] if len(clauses) == 1 else "(" + " or ".join(clauses) + ")"
+            terms.append(f"(chain {quote(chain)} and {body})")
         return terms[0] if len(terms) == 1 else "(" + " or ".join(terms) + ")"
     if sel.kind == "first":
         return f"(first ({render_selection(sel.parts[0])}))"
@@ -315,7 +377,7 @@ class PymolBackend:
         if unit is wanted:
             return level
 
-        entry = loaded_map(volume)
+        entry = loaded_map(volume, self.port)
         if entry is None:
             raise PortError(
                 f"a level in {unit.value} was given for {volume!r}, but this "
@@ -351,11 +413,15 @@ class PymolBackend:
             call(self.port, action, op.name, op.volume, level)
 
     def _colorsurfacebymap(self, op: ColorSurfaceByMap) -> None:
-        entry = loaded_map(op.volume)
+        # With the port: a record whose object has left the session is evicted
+        # rather than used, because converting against a volume that is no
+        # longer loaded gives a wrong number and no error.
+        entry = loaded_map(op.volume, self.port)
         if entry is None:
             raise PortError(
-                f"{op.volume!r} was not loaded through load_map, so its header "
-                f"is unknown and its breakpoints cannot be converted."
+                f"{op.volume!r} was not loaded through load_map, or the object "
+                f"has since left the session, so its header is unknown and its "
+                f"breakpoints cannot be converted."
             )
         # Breakpoints are in the second volume's own units (Angstrom) and
         # convert against ITS header — a different sigma scale from the density

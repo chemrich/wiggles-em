@@ -41,24 +41,63 @@ DEFAULT_SIGMA = 1.5
 DEFAULT_CARVE = 2.0
 
 
+def usable_rms(header: MapHeader) -> bool:
+    """Can this header's RMS define a sigma scale?
+
+    Only a strictly positive RMS can, and two non-positive values occur in
+    real files. Zero means a flat or unnormalised map. **Negative is the
+    dangerous one:** MRC2014 writes ``rms=-1`` for "statistics not computed",
+    which is what mrcfile leaves behind without ``update_header_stats()``, and
+    it divides perfectly cleanly. ``to_sigma(0.05)`` returned ``-2.05``, and
+    ``local_resolution_view`` turned ascending Ångström breakpoints into a
+    descending ramp — blue bound to the worst-resolved density, under a legend
+    saying blue was the best.
+
+    Testing ``if not header.rms`` catches only the first of the two.
+    """
+    return header.rms > 0
+
+
+def _rms_meaning(rms: float) -> str:
+    """What a non-positive RMS in a real header usually means."""
+    if rms < 0:
+        return (
+            "a negative RMS marks statistics that were never computed, which "
+            "is what mrcfile leaves behind without update_header_stats()"
+        )
+    return "a zero RMS means a flat map, or one whose header statistics are stale"
+
+
 def to_sigma(header: MapHeader, absolute: float) -> float:
     """Convert an absolute map value to sigma units.
 
     Raises:
-        ValueError: the header reports zero RMS, so sigma is undefined and no
-            conversion is possible.
+        ValueError: the header's RMS cannot define a sigma scale — see
+            :func:`usable_rms`.
     """
-    if not header.rms:
+    if not usable_rms(header):
         raise ValueError(
-            "header reports rms=0, so sigma is undefined and an absolute level "
-            "cannot be converted. The map may be unnormalised or its header "
-            "statistics stale."
+            f"header reports rms={header.rms:g}, so sigma is undefined and an "
+            f"absolute level cannot be converted: {_rms_meaning(header.rms)}. "
+            f"Give the level in absolute units instead."
         )
     return (absolute - header.dmean) / header.rms
 
 
 def to_absolute(header: MapHeader, sigma: float) -> float:
-    """Convert a sigma level back to an absolute map value."""
+    """Convert a sigma level back to an absolute map value.
+
+    Raises:
+        ValueError: the header's RMS cannot define a sigma scale, so there is
+            no sigma to convert *from* — see :func:`usable_rms`. Returning
+            ``dmean + sigma * rms`` on a negative RMS hands back a number of
+            the right shape and the wrong sign, which is the harder failure.
+    """
+    if not usable_rms(header):
+        raise ValueError(
+            f"header reports rms={header.rms:g}, so sigma is undefined and a "
+            f"sigma level has no absolute equivalent: {_rms_meaning(header.rms)}."
+        )
     return header.dmean + sigma * header.rms
 
 
@@ -124,7 +163,7 @@ def density_view(
         sigma = float(level)  # type: ignore[arg-type]
         absolute = None
 
-    if absolute is None and header.rms:
+    if absolute is None and usable_rms(header):
         absolute = to_absolute(header, sigma)
 
     mesh = name or f"{map_obj}_mesh"
@@ -151,6 +190,11 @@ def density_view(
         f"  Contour: {sigma:.3g} sigma  =  {absolute_text} absolute",
         f"  Map sigma (header rms): {header.rms:.6g}   mean: {header.dmean:.6g}",
         f"  Mesh `{mesh}`, carved {carve:g} Å around the selection.",
+        # The registry is keyed by object name, so a map deleted and reloaded
+        # under the same name keeps the old header and nothing can detect it —
+        # a viewer does not expose the file an object came from. Naming the
+        # path is what makes a substitution visible to a reader.
+        f"  Header read from: {record.path}",
         "",
     ]
 

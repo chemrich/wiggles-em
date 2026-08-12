@@ -132,3 +132,40 @@ def test_preservation_note_is_actionable():
     assert "42" in note
     assert "restore_bfactors" in note
     assert "myobj" in note
+
+
+# ── the first stash wins (MCPymol PR #57) ──────────────────────────────────
+
+
+def test_a_second_stash_does_not_overwrite_the_first():
+    """Every caller reads `b` *after* an earlier view may have overwritten it.
+
+    So occupancy_view followed by qscore_view saved the occupancies as though
+    they were the user's crystallographic data, and restore_bfactors then wrote
+    those back and reported success for having destroyed the values it exists
+    to protect. The stash is the only copy — nothing else holds them.
+    """
+    original = [Atom("A", "1", "MET", "CA", "", 1.0, 20.5, "m", 1)]
+    overwritten = [Atom("A", "1", "MET", "CA", "", 1.0, 0.42, "m", 1)]
+
+    assert stash_bfactors("obj", original) == 1
+    assert stash_bfactors("obj", overwritten) == 1, "the count must stay truthful"
+
+    port = FakePort()
+    restore_bfactors(port, "obj")
+    payload = next(c for c in port.commands if "stored.wiggles_b" in c)
+    assert json.loads(payload.split("= ", 1)[1]) == {"m|1": 20.5}
+
+
+def test_restoring_clears_the_stash_so_a_later_view_can_take_a_baseline():
+    """Without this, first-stash-wins pins an object to B-factors that are no
+    longer the ones worth saving."""
+    stash_bfactors("obj", [Atom("A", "1", "MET", "CA", "", 1.0, 20.5, "m", 1)])
+    restore_bfactors(FakePort(), "obj")
+    assert not has_stash("obj")
+
+    stash_bfactors("obj", [Atom("A", "1", "MET", "CA", "", 1.0, 99.0, "m", 1)])
+    port = FakePort()
+    restore_bfactors(port, "obj")
+    payload = next(c for c in port.commands if "stored.wiggles_b" in c)
+    assert json.loads(payload.split("= ", 1)[1]) == {"m|1": 99.0}

@@ -291,3 +291,25 @@ def test_a_skipped_frame_does_not_renumber_the_ones_after_it(ensemble):
         assert surface.rsplit("_", 1)[1].lstrip("0") == volume.rsplit("f", 1)[1].lstrip("0")
 
     assert "frame 3" in d.report, "the report must name which frame was skipped"
+
+
+def test_the_anchor_skips_frames_whose_rms_cannot_define_sigma(ensemble):
+    """A sigma level is interpreted against the first *usable* frame.
+
+    Anchoring on frame 0 regardless meant a leading rms=0 or rms=-1 header
+    yielded an anchor of dmean — a number unrelated to the level asked for —
+    which was then applied to every other frame.
+    """
+    port, name = ensemble(rms=(0.0, 0.5, 1.0))
+    d = render(latent_traverse_view(name, level=2.0, units="sigma"), port=port)
+
+    # Frame 1 is unusable, so the anchor is frame 2: 2 sigma there.
+    sigmas = [args[2] for args, _ in d.port.calls("isosurface")]
+    assert sigmas[0] == pytest.approx(2.0), d.port.call_log
+    assert sigmas[1] == pytest.approx(1.0), "same absolute value, frame 3's sigma"
+
+
+def test_no_frame_with_a_usable_rms_is_refused(ensemble):
+    _, name = ensemble(rms=(-1.0, 0.0))
+    with pytest.raises(PortError, match=r"no frame .* has a usable RMS"):
+        latent_traverse_view(name, level=2.0, units="sigma")

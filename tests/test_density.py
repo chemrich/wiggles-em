@@ -177,3 +177,37 @@ def test_the_scene_names_the_unit_it_states_the_level_in(loaded):
     (op,) = d.scene.of(Isosurface)
     assert op.unit is Unit.SIGMA
     assert op.level == 2.0
+
+
+# ── a negative RMS is not a usable sigma scale (MCPymol PR #58) ─────────────
+
+
+def test_a_negative_rms_cannot_define_a_sigma_scale(loaded):
+    """MRC2014 writes rms=-1 for "statistics not computed" — what mrcfile
+    leaves behind without update_header_stats().
+
+    It divides cleanly, so `if not header.rms` lets it through: to_sigma(0.05)
+    returned -2.05, and a resolution ramp turned ascending Angstrom
+    breakpoints into a descending one — blue bound to the worst-resolved
+    density under a legend saying blue was the best.
+    """
+    _, obj, _ = loaded("stale.mrc", rms=-1.0)
+    with pytest.raises(ValueError, match="sigma is undefined"):
+        density_view(obj, "chain A", level=0.05, units="absolute")
+
+
+def test_to_sigma_and_to_absolute_both_reject_it(tmp_path):
+    """to_absolute had no guard at all. `dmean + sigma * -1` returns a number
+    of the right shape and the wrong sign, which is the harder failure."""
+    header = read_map_header(write_map(tmp_path, "stale.mrc", rms=-1.0))
+
+    with pytest.raises(ValueError, match="never computed"):
+        to_sigma(header, 0.05)
+    with pytest.raises(ValueError, match="never computed"):
+        to_absolute(header, 1.5)
+
+
+def test_zero_rms_is_still_rejected(tmp_path):
+    header = read_map_header(write_map(tmp_path, "flat.mrc", rms=0.0))
+    with pytest.raises(ValueError, match="flat map"):
+        to_sigma(header, 0.05)

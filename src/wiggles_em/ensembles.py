@@ -30,6 +30,22 @@ from wiggles_em.scene import (
     SizeByScalar,
 )
 
+#: How far the positional spread may exceed the rigid-invariant radial spread
+#: before the difference is called rigid motion.
+#:
+#: High, and the reason is worth keeping. A first attempt at 3.0 fired on a
+#: genuine hinge: any *asymmetric* conformational change moves the centroid,
+#: so the positional spread picks up that shift on its own and runs a few
+#: times the radial figure without a gram of rigid-body motion. Truly rigid
+#: states have a radial spread of exactly zero — translation and rotation both
+#: leave every atom's distance to its own centroid untouched — so the rigid
+#: case sits at infinity and a wide threshold separates the two cleanly.
+#:
+#: This detects rigid motion that *dominates*, not rigid motion that is
+#: present. A modest drift under a lot of real flexing will not trip it, and
+#: should not: the report already says whether the states were fitted.
+RIGID_RATIO = 10.0
+
 SPREAD_LEGEND = (
     "Spread is the RMS deviation of each atom's position across states. It is a "
     "description of how much the deposited members differ, NOT a calibrated "
@@ -83,12 +99,41 @@ def per_residue_spread(atoms: list[Atom], atom_spread: list[float]) -> dict[tupl
     return {key: sum(v) / len(v) for key, v in acc.items()}
 
 
+def radial_spread(coords_by_state: list[list[tuple[float, float, float]]]) -> list[float]:
+    """Per-atom spread of the distance to that state's own centroid.
+
+    Invariant under both translation and rotation, which is what makes it a
+    check on :func:`per_atom_spread` rather than another version of it. An
+    internally rigid molecule tumbling across its box has a large positional
+    spread and a radial spread of zero; a genuinely flexing one has both.
+
+    It is deliberately *not* offered as a flexibility measure: it is blind to
+    tangential motion, so a residue swinging around the centre at constant
+    radius scores zero. It answers one question — is the positional number
+    dominated by rigid motion — and nothing else.
+    """
+    radii_by_state = []
+    for state in coords_by_state:
+        n = len(state)
+        cx = sum(p[0] for p in state) / n
+        cy = sum(p[1] for p in state) / n
+        cz = sum(p[2] for p in state) / n
+        radii_by_state.append(
+            [math.dist(p, (cx, cy, cz)) for p in state]
+        )
+    return [
+        _rmsf([(radii[i], 0.0, 0.0) for radii in radii_by_state])
+        for i in range(len(radii_by_state[0]))
+    ]
+
+
 def ensemble_spread_view(
     atoms: list[Atom],
     coords: list[list[tuple[float, float, float]]],
     obj: str,
     *,
     as_putty: bool = True,
+    superposed: bool,
 ) -> tuple[str, Scene]:
     """Colour and thicken ``obj`` by how much its states disagree, per residue.
 
@@ -99,11 +144,33 @@ def ensemble_spread_view(
     make most ensembles look uniformly blue. The report states the maximum so
     the scaling is never implicit.
 
+    **Spread is only a conformational quantity once the states share a frame.**
+    It is the RMS of each atom about its own position across states, which
+    measures whatever separates those states — including a rigid-body offset
+    that says nothing about flexibility. A viewer loads a multi-model PDB's
+    models as states without aligning them, so an MD trajectory that drifted
+    across its box, or two independently refined ensemble members 2 Å apart,
+    would report that offset at *every* residue and paint an internally rigid
+    molecule red end to end.
+
+    Fitting belongs to the host, which has the session and a superposition
+    routine already — PyMOL's ``intra_fit``, biotite's ``superimpose``. This
+    view takes ``superposed`` as a statement of what was done.
+
+    But a flag is a claim, and a wrong claim is silent, so the numbers are
+    checked against it: :func:`radial_spread` is invariant under translation
+    and rotation, and a positional spread that dwarfs it means rigid motion
+    whatever the caller said. The report leads with that.
+
     Args:
         atoms: Every atom in ``obj``, already read.
         coords: Coordinates per state, outer list one entry per state.
         obj: The object name, for the scene's selections and the report.
         as_putty: Also vary tube width by spread, not only colour.
+        superposed: Whether the host fitted the states onto a common frame
+            before reading these coordinates. Required, with no default: a
+            default would be this view guessing at the one thing that decides
+            whether its number means anything.
 
     Returns:
         A report ending with the spread legend, and the scene to draw.
@@ -120,6 +187,12 @@ def ensemble_spread_view(
 
     atom_spread = per_atom_spread(coords)
     residue_spread = per_residue_spread(atoms, atom_spread)
+
+    # The check on the caller's claim. Comparing means rather than maxima
+    # because a single flexible loop should not mask a whole-body drift.
+    positional = sum(atom_spread) / len(atom_spread)
+    radial = sum(radial_spread(coords)) / len(atom_spread)
+    rigid_dominated = positional > RIGID_RATIO * max(radial, 1e-9)
 
     values = sorted(residue_spread.values())
     lo, hi = values[0], values[-1]
@@ -145,6 +218,26 @@ def ensemble_spread_view(
             f"  Most variable: {widest_text}",
             "",
             f"  Coloured blue (rigid) → red ({hi:.2f} Å), scaled to this object.",
+            (
+                "  States were superposed before measuring."
+                if superposed
+                else "  States were NOT superposed — spread includes any rigid-body"
+                "\n  offset between them."
+            ),
+            *(
+                [
+                    "",
+                    "  ! RIGID-BODY MOTION DOMINATES. Each atom's distance to its own",
+                    f"  state's centroid varies by {radial:.2f} Å on average, while its",
+                    f"  position varies by {positional:.2f} Å. That gap is a rigid",
+                    "  offset or rotation between the states, not flexibility — the",
+                    "  radial figure is invariant to both. Fit the states onto a",
+                    "  common frame and measure again; the number above is not a",
+                    "  conformational quantity.",
+                ]
+                if rigid_dominated
+                else []
+            ),
             "" if not as_putty else "  Tube width also tracks spread (putty).",
             "",
             SPREAD_LEGEND,
