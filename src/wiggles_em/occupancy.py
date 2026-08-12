@@ -120,9 +120,7 @@ def occupancy_view(atoms: list[Atom], obj: str) -> tuple[str, Scene]:
         return "\n".join(lines), Scene([legend])
 
     target = Sel.obj(obj)
-    field = ScalarField.per_atom(
-        [((a.chain, a.resi, a.name, a.alt), a.q) for a in atoms]
-    )
+    field = ScalarField.per_atom([(a.key, a.q) for a in atoms])
     scene = Scene([
         ColorByScalar(target, field, domain=(0.0, 1.0), palette="red_white_blue"),
         # Partial atoms shown as sticks so they read as "modelled alternative"

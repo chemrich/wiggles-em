@@ -206,6 +206,7 @@ def local_resolution_view(
     map_obj: str,
     res_obj: str,
     *,
+    normalised: bool | None,
     level: float | None = None,
     units: str = "sigma",
     breaks: list[float] | None = None,
@@ -213,7 +214,6 @@ def local_resolution_view(
     selection: str | None = None,
     carve: float = DEFAULT_CARVE,
     name: str | None = None,
-    normalised: bool | None = None,
     validate_only: bool = False,
 ) -> tuple[str, Scene]:
     """Draw ``map_obj``'s isosurface coloured by the resolution field in ``res_obj``.
@@ -237,9 +237,16 @@ def local_resolution_view(
         carve: Carve radius in Å. Ignored without ``selection``.
         name: Surface object name. Defaults to ``<map_obj>_localres``.
         normalised: Whether the viewer normalised the volumes on load. PyMOL
-            does by default, which is what puts the breakpoints in sigma; pass
-            what the backend reports. ``None`` means it would not say, and the
-            report says so rather than assuming.
+            does by default, which is what puts the breakpoints in sigma.
+            ``None`` means it would not say, and the report says so rather than
+            assuming.
+
+            **Required, with no default, on purpose.** The same answer decides
+            what this report claims and what the backend actually draws, so it
+            has to be read once and passed to both — a default here would let
+            the colour key describe units the surface was not drawn in. Read it
+            with :func:`wiggles_em.backends.pymol.normalisation_state` and give
+            it to ``PymolBackend`` too.
         validate_only: Run the grid check and report, creating nothing.
 
     Returns:

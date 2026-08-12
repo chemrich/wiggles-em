@@ -231,6 +231,20 @@ class ScalarField:
                 f"scalar field with a length mismatch would colour by an "
                 f"offset, which renders plausibly and is wrong"
             )
+        if len(set(self.keys)) != len(self.keys):
+            # A backend lowers this to a lookup table, so a repeated key
+            # silently keeps one value and hands it to every atom that shares
+            # the key. Nothing about the result looks unusual: the wrong atom
+            # is drawn a legitimate colour from the right scale.
+            seen: set[tuple[str, ...]] = set()
+            clashes = sorted({k for k in self.keys if k in seen or seen.add(k)})  # type: ignore[func-returns-value]
+            raise ValueError(
+                f"duplicate keys in a per-{self.granularity.value} scalar field: "
+                f"{clashes[:5]}{' …' if len(clashes) > 5 else ''}. Each key must "
+                f"identify one thing, or the value drawn for it is whichever "
+                f"happened to be last — and that renders as an ordinary colour "
+                f"on the right scale, so nothing looks wrong."
+            )
 
     @classmethod
     def per_atom(cls, pairs) -> ScalarField:

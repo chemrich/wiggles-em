@@ -99,7 +99,7 @@ def test_the_scalar_field_carries_a_key_per_value():
     """A field with a length mismatch colours by an offset — plausibly, wrongly."""
     (op,) = draw(occupancy_view, PARTIAL, "obj").scene.of(ColorByScalar)
     assert len(op.field.keys) == len(op.field.values) == 3
-    assert op.field.keys[1] == ("A", "2", "CA", "A")
+    assert op.field.keys[1] == ("m", "2")
 
 
 def test_bfactors_are_preserved_by_default():
@@ -238,3 +238,41 @@ def test_a_view_cannot_touch_a_viewer_at_all():
     """
     report, scene = occupancy_view(make_atoms(PARTIAL), "obj")
     assert report and len(scene)
+
+
+# -- key identity ----------------------------------------------------------
+
+
+def test_atoms_differing_only_by_insertion_code_keep_separate_values():
+    """The collision bfactors._key documents, asserted end to end.
+
+    Antibody models are full of insertion codes, and the pre-seam code could
+    not get this wrong: `alter obj, b=q` let PyMOL read each atom's own q. A
+    keyed dictionary can, and a collision does not fail — it colours one
+    residue with its neighbour's occupancy on a fixed 0-1 ramp.
+    """
+    rows = [
+        ("A", "100", "SER", "CA", "", 0.30, 20.0, "m", 1),
+        ("A", "100A", "SER", "CA", "", 0.90, 21.0, "m", 2),
+    ]
+    d = draw(occupancy_view, rows, "obj")
+
+    (op,) = d.scene.of(ColorByScalar)
+    assert len(set(op.field.keys)) == 2, f"keys collided: {op.field.keys}"
+
+    pushed = next(c for c in d.port.commands if "stored.wiggles_scalar" in c)
+    payload = json.loads(pushed.split("= ", 1)[1])
+    assert sorted(payload.values()) == [0.30, 0.90], payload
+
+
+def test_one_selection_spanning_two_models_keeps_them_apart():
+    """`obj` can be a named selection covering two loaded structures, where
+    chain/resi/name repeat by construction."""
+    rows = [
+        ("A", "1", "MET", "CA", "", 0.40, 20.0, "first", 1),
+        ("A", "1", "MET", "CA", "", 0.80, 20.0, "second", 1),
+    ]
+    d = draw(occupancy_view, rows, "both")
+
+    (op,) = d.scene.of(ColorByScalar)
+    assert len(set(op.field.keys)) == 2, f"keys collided: {op.field.keys}"

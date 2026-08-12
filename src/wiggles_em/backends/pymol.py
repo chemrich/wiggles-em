@@ -23,7 +23,7 @@ from typing import cast
 
 from wiggles_em.atoms import fetch_atoms
 from wiggles_em.bfactors import has_stash, preservation_note, stash_bfactors
-from wiggles_em.density import to_sigma
+from wiggles_em.density import to_absolute, to_sigma
 from wiggles_em.maps import loaded_map
 from wiggles_em.port import PortError, PymolPort, call
 from wiggles_em.scene import (
@@ -62,10 +62,6 @@ _CGO_CONE = 27.0
 #: A dict lookup in one ``alter`` beats one ``alter`` per residue: the round
 #: trips stop scaling with the size of the structure.
 _STORED = "stored.wiggles_scalar"
-
-#: Sentinel: the normalisation setting has not been asked for yet. None is a
-#: real answer here ("PyMOL would not say"), so it cannot double as "unknown".
-_UNREAD = object()
 
 #: Representations PyMOL draws. ``MESH`` is not one of them — a mesh is a
 #: property of an isosurface object, not of a selection.
@@ -144,9 +140,23 @@ def normalisation_state(port: PymolPort) -> bool | None:
 class PymolBackend:
     """Draws a Scene through a :class:`~wiggles_em.port.PymolPort`."""
 
-    def __init__(self, port: PymolPort, preserve_bfactors: bool = True) -> None:
+    def __init__(
+        self,
+        port: PymolPort,
+        preserve_bfactors: bool = True,
+        normalised: bool | None = None,
+    ) -> None:
         self.port = port
         self.preserve_bfactors = preserve_bfactors
+        #: Whether PyMOL normalised the volumes on load, as the host read it.
+        #:
+        #: Taken as an argument rather than queried here, because the *view*
+        #: needs the same answer for its report. When each read the session
+        #: separately they could disagree, and the failure was a colour key
+        #: describing units the surface was not drawn in. One read, one answer:
+        #: the host calls :func:`normalisation_state` once and passes it here
+        #: and to the view.
+        self.normalised = normalised
         #: Absolute levels this backend converted, by surface name. The report
         #: layer reads these back so it can state both units without
         #: recomputing a conversion that might disagree.
@@ -160,8 +170,6 @@ class PymolBackend:
         #: has nothing to restore. Putting the note where the behaviour is
         #: keeps the two from drifting apart.
         self.notes: list[str] = []
-        #: Cached answer to ``normalize_ccp4_maps``, read once per backend.
-        self._normalised: bool | object | None = _UNREAD
 
     # -- entry point -------------------------------------------------------
 
@@ -192,7 +200,7 @@ class PymolBackend:
         # no structured equivalent.
         self.port.do(f"{_STORED} = {json.dumps(flat)}")
         if field.granularity is Granularity.ATOM:
-            key_expr = "'|'.join((chain, resi, name, alt))"
+            key_expr = "'|'.join((model, str(index)))"
         else:
             key_expr = "'|'.join((chain, resi))"
         return f"b={_STORED}.get({key_expr}, b)"
@@ -277,25 +285,40 @@ class PymolBackend:
 
     # -- volumes -----------------------------------------------------------
 
-    def _sigma_for(self, volume: str, level: float, unit: Unit) -> float:
-        """The level PyMOL wants, in σ, converted against *this* map's header."""
-        if unit is Unit.SIGMA:
+    def _level_for(self, volume: str, level: float, unit: Unit) -> float:
+        """The number PyMOL wants, converted against *this* map's header.
+
+        Which unit that is depends on the session, not on the op. PyMOL
+        contours in sigma **because** it normalised the map on load; with
+        ``normalize_ccp4_maps`` off the values are stored as written and an
+        isosurface level is read as an absolute map value. Sending a sigma
+        number to an unnormalised map contours far above its dmax and yields an
+        empty surface, while the report cheerfully states the absolute level it
+        thought it had asked for.
+        """
+        wanted = Unit.SIGMA if self.normalised is not False else Unit.ABSOLUTE
+        if unit is wanted:
             return level
+
         entry = loaded_map(volume)
         if entry is None:
             raise PortError(
-                f"an absolute level was given for {volume!r}, but that volume "
-                f"was not loaded through load_map, so its header is unknown "
-                f"and the conversion to sigma cannot be made. PyMOL contours "
-                f"in sigma; passing an absolute value through would contour at "
-                f"the wrong level without failing."
+                f"a level in {unit.value} was given for {volume!r}, but this "
+                f"session needs it in {wanted.value} and that volume was not "
+                f"loaded through load_map, so its header is unknown and the "
+                f"conversion cannot be made. Passing the number through would "
+                f"contour at the wrong level without failing."
             )
-        sigma = to_sigma(entry.header, level)
-        self.converted[volume] = (level, sigma)
-        return sigma
+        converted = (
+            to_sigma(entry.header, level)
+            if wanted is Unit.SIGMA
+            else to_absolute(entry.header, level)
+        )
+        self.converted[volume] = (level, converted)
+        return converted
 
     def _isosurface(self, op: Isosurface) -> None:
-        sigma = self._sigma_for(op.volume, op.level, op.unit)
+        level = self._level_for(op.volume, op.level, op.unit)
         action = "isomesh" if op.style is Rep.MESH else "isosurface"
         if op.carve_around is not None:
             if op.carve_radius is None:
@@ -305,12 +328,12 @@ class PymolBackend:
                 action,
                 op.name,
                 op.volume,
-                sigma,
+                level,
                 render_selection(op.carve_around),
                 carve=op.carve_radius,
             )
         else:
-            call(self.port, action, op.name, op.volume, sigma)
+            call(self.port, action, op.name, op.volume, level)
 
     def _colorsurfacebymap(self, op: ColorSurfaceByMap) -> None:
         entry = loaded_map(op.volume)
@@ -328,9 +351,7 @@ class PymolBackend:
         # values are still resolutions and converting would be the error. An
         # unanswerable question is the unknown case, and the PyMOL default is
         # on, so unknown converts.
-        if self._normalised is _UNREAD:
-            self._normalised = normalisation_state(self.port)
-        if self._normalised is False:
+        if self.normalised is False:
             sigmas = list(op.breakpoints)
         else:
             sigmas = [to_sigma(entry.header, point) for point in op.breakpoints]

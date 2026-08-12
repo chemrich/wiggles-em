@@ -16,15 +16,15 @@ from wiggles_em.port import FakePort, PortError
 
 
 def test_fetch_atoms_parses_rows():
-    port = FakePort({"iterate_to_list": [("A", "1", "MET", "CA", "", 1.0, 20.0)]})
+    port = FakePort({"iterate_to_list": [("A", "1", "MET", "CA", "", 1.0, 20.0, "m", 1)]})
     (atom,) = fetch_atoms(port, "obj")
-    assert atom == Atom("A", "1", "MET", "CA", "", 1.0, 20.0)
+    assert atom == Atom("A", "1", "MET", "CA", "", 1.0, 20.0, "m", 1)
     assert atom.residue == ("A", "1")
 
 
 def test_fetch_atoms_coerces_numeric_strings():
     """PyMOL round-trips through JSON; numbers may arrive as strings."""
-    port = FakePort({"iterate_to_list": [("A", 1, "MET", "CA", "", "0.5", "20")]})
+    port = FakePort({"iterate_to_list": [("A", 1, "MET", "CA", "", "0.5", "20", "m", 1)]})
     (atom,) = fetch_atoms(port, "obj")
     assert atom.resi == "1"
     assert atom.q == pytest.approx(0.5)
@@ -45,12 +45,14 @@ def test_fetch_atoms_failure_modes(response, match):
 
 
 def test_wrong_field_count_names_the_expected_layout():
-    with pytest.raises(PortError, match="expected 7 fields"):
+    with pytest.raises(PortError, match="expected 9 fields"):
         fetch_atoms(FakePort({"iterate_to_list": [("A", "1", "MET")]}), "obj")
 
 
 def test_unconvertible_occupancy_is_an_error():
-    port = FakePort({"iterate_to_list": [("A", "1", "MET", "CA", "", "not-a-number", 20.0)]})
+    port = FakePort(
+        {"iterate_to_list": [("A", "1", "MET", "CA", "", "not-a-number", 20.0, "m", 1)]}
+    )
     with pytest.raises(PortError, match="malformed atom row"):
         fetch_atoms(port, "obj")
 
@@ -91,9 +93,9 @@ def test_fetch_state_coords_rejects_malformed_point():
 
 def test_group_by_residue_preserves_first_seen_order():
     atoms = [
-        Atom("A", "2", "SER", "CA", "", 1.0, 0.0),
-        Atom("A", "1", "MET", "CA", "", 1.0, 0.0),
-        Atom("A", "2", "SER", "CB", "", 1.0, 0.0),
+        Atom("A", "2", "SER", "CA", "", 1.0, 0.0, "m", 2),
+        Atom("A", "1", "MET", "CA", "", 1.0, 0.0, "m", 3),
+        Atom("A", "2", "SER", "CB", "", 1.0, 0.0, "m", 4),
     ]
     grouped = group_by_residue(atoms)
     assert list(grouped) == [("A", "2"), ("A", "1")]
@@ -102,9 +104,9 @@ def test_group_by_residue_preserves_first_seen_order():
 
 def test_altloc_groups_excludes_blank_and_whitespace():
     atoms = [
-        Atom("A", "1", "MET", "CA", "", 1.0, 0.0),
-        Atom("A", "2", "SER", "CA", " ", 1.0, 0.0),
-        Atom("A", "3", "SER", "CA", "B", 1.0, 0.0),
-        Atom("A", "4", "SER", "CA", "A", 1.0, 0.0),
+        Atom("A", "1", "MET", "CA", "", 1.0, 0.0, "m", 5),
+        Atom("A", "2", "SER", "CA", " ", 1.0, 0.0, "m", 6),
+        Atom("A", "3", "SER", "CA", "B", 1.0, 0.0, "m", 7),
+        Atom("A", "4", "SER", "CA", "A", 1.0, 0.0, "m", 8),
     ]
     assert altloc_groups(atoms) == ["A", "B"]

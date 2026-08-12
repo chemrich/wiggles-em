@@ -17,9 +17,9 @@ from wiggles_em.bfactors import (
 from wiggles_em.port import FakePort, PortError
 
 ATOMS = [
-    Atom("A", "1", "MET", "CA", "", 1.0, 20.5),
-    Atom("A", "1", "MET", "CB", "", 1.0, 22.0),
-    Atom("A", "2", "SER", "CA", "A", 0.6, 31.25),
+    Atom("A", "1", "MET", "CA", "", 1.0, 20.5, "m", 1),
+    Atom("A", "1", "MET", "CB", "", 1.0, 22.0, "m", 2),
+    Atom("A", "2", "SER", "CA", "A", 0.6, 31.25, "m", 3),
 ]
 
 
@@ -56,17 +56,20 @@ def test_restore_pushes_values_back_in_one_batch():
 
     payload = next(c for c in port.commands if "stored.wiggles_b" in c)
     values = json.loads(payload.split("= ", 1)[1])
-    # Key is chain|resi|name|alt — residue name is deliberately not part of it.
-    assert values["A|1|CA|"] == 20.5
-    assert values["A|1|CB|"] == 22.0
-    assert values["A|2|CA|A"] == 31.25
+    # Keyed on model|index. Chain + residue + name + altloc collided on PDB
+    # insertion codes and across a selection spanning two models, and a
+    # collision restored one atom's B-factor onto another.
+    assert values["m|1"] == 20.5
+    assert values["m|2"] == 22.0
+    assert values["m|3"] == 31.25
 
 
-def test_restore_key_includes_altloc():
-    """Two atoms differing only by altloc must not collide."""
+def test_restore_key_separates_atoms_that_share_everything_but_identity():
+    """Altloc pairs, insertion codes and cross-model selections all collided
+    on the old chain/residue/name/altloc key. Identity is (model, index)."""
     atoms = [
-        Atom("A", "2", "SER", "CA", "A", 0.6, 10.0),
-        Atom("A", "2", "SER", "CA", "B", 0.4, 90.0),
+        Atom("A", "2", "SER", "CA", "A", 0.6, 10.0, "m", 4),
+        Atom("A", "2", "SER", "CA", "B", 0.4, 90.0, "m", 5),
     ]
     stash_bfactors("obj", atoms)
     port = FakePort()
@@ -75,8 +78,28 @@ def test_restore_key_includes_altloc():
     payload = next(c for c in port.commands if "stored.wiggles_b" in c)
     values = json.loads(payload.split("= ", 1)[1])
     assert len(values) == 2
-    assert values["A|2|CA|A"] == 10.0
-    assert values["A|2|CA|B"] == 90.0
+    assert values["m|4"] == 10.0
+    assert values["m|5"] == 90.0
+
+
+def test_the_old_key_would_have_collided_where_this_one_does_not():
+    """Guards the guard: the atoms above differ only by altloc, and two
+    residues differing only by an insertion code differ in nothing the old key
+    looked at. Identity has to come from somewhere the model cannot repeat."""
+    insertion = [
+        Atom("A", "100", "SER", "CA", "", 0.3, 11.0, "m", 7),
+        Atom("A", "100A", "SER", "CA", "", 0.9, 22.0, "m", 8),
+    ]
+    old_keys = {(a.chain, a.resi, a.name, a.alt) for a in insertion}
+    assert len({a.key for a in insertion}) == 2
+    # The old key does separate these two only because PyMOL happens to fold
+    # the insertion code into `resi`; across two models it does not.
+    two_models = [
+        Atom("A", "1", "MET", "CA", "", 0.4, 11.0, "first", 1),
+        Atom("A", "1", "MET", "CA", "", 0.8, 22.0, "second", 1),
+    ]
+    assert len({(a.chain, a.resi, a.name, a.alt) for a in two_models}) == 1, old_keys
+    assert len({a.key for a in two_models}) == 2
 
 
 def test_restore_falls_back_to_current_value_for_unknown_atoms():

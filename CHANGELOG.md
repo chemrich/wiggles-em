@@ -51,6 +51,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `local_resolution_view` lost `ramp_name`. A ramp is a PyMOL object; no other
   viewer has one to name.
 
+### Fixed
+
+Four findings from a code review of the seam conversion, all of them behaviour
+that lived inside a view and was dropped or split when the view stopped calling
+the viewer. Each is silent — the render looks ordinary and means something else.
+
+- **Atom identity is `(model, index)`.** It was chain + residue + name +
+  altloc, which collides on PDB insertion codes (`bfactors._key` documented
+  this and it was carried into the new scalar path) and across a selection
+  spanning two loaded models. A collision handed one atom another's occupancy
+  and drew it a legitimate colour on the right scale. `ScalarField` now also
+  refuses duplicate keys outright, so no future key choice can collapse
+  quietly.
+- **`normalised` is read once and passed to both the view and the backend.**
+  The view took it as an argument for its report while `PymolBackend` queried
+  the session independently, so the colour key could list σ breakpoints while
+  the surface was ramped in Ångström. It is now a required argument on
+  `local_resolution_view` — a default is what let the two drift.
+- **A contour level converts to the unit the viewer actually wants.** With
+  `normalize_ccp4_maps` off PyMOL reads an isosurface level as an absolute map
+  value, and the backend was converting to σ regardless — contouring far above
+  dmax and yielding an empty surface while the report stated the level it
+  believed it had asked for.
+- **Latent surfaces keep their own frame numbers.** Numbering ran over the
+  frames that survived the rms=0 filter, so a single skipped frame made
+  `_03` hold frame 4's density and the user read each density against the wrong
+  latent coordinate. The report now names which frames were skipped.
+
 ### Notes
 
 Between 2026-08-09 and this split the code lived inside MCPymol as

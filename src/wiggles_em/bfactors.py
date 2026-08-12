@@ -25,23 +25,22 @@ import json
 from wiggles_em.atoms import Atom
 from wiggles_em.port import PortError, PymolPort, call
 
-# obj name -> {(chain, resi, name, alt): b}
+# obj name -> {(model, index): b}
 # Process-global. Correct for a single-session MCP server, which is what
 # MCPymol is today; wrong the moment one process serves two sessions. Keyed
 # by object name, so two sessions with the same object name would collide.
 # Flagged rather than solved — see MOVING.md.
-_STASH: dict[str, dict[tuple[str, str, str, str], float]] = {}
+_STASH: dict[str, dict[tuple[str, str], float]] = {}
 
 
-def _key(atom: Atom) -> tuple[str, str, str, str]:
-    """Atom identity for restore purposes.
+def _key(atom: Atom) -> tuple[str, str]:
+    """Atom identity for restore purposes — see :attr:`Atom.key`.
 
-    Chain + residue number + atom name + altloc. This does not include the
-    PDB insertion code, which PyMOL exposes separately — two atoms differing
-    only by insertion code would collide. Rare, and the failure is a restored
-    B-factor being wrong rather than lost, but it is a real limit.
+    Was chain + residue + name + altloc, which collided on PDB insertion codes
+    and across a selection spanning two models. Both collisions restored one
+    atom's B-factor onto another, which is worse than losing it.
     """
-    return (atom.chain, atom.resi, atom.name, atom.alt)
+    return atom.key
 
 
 def stash_bfactors(obj: str, atoms: list[Atom]) -> int:
@@ -86,7 +85,7 @@ def restore_bfactors(port: PymolPort, obj: str) -> str:
     # same string in the alter expression.
     flat = {"|".join(k): v for k, v in saved.items()}
     port.do(f"stored.wiggles_b = {json.dumps(flat)}")
-    call(port, "alter", obj, "b=stored.wiggles_b.get('|'.join((chain, resi, name, alt)), b)")
+    call(port, "alter", obj, "b=stored.wiggles_b.get('|'.join((model, str(index))), b)")
     call(port, "rebuild", obj)
     return (
         f"Restored {len(saved)} B-factors on {obj}. Atoms not present when the "

@@ -73,8 +73,16 @@ def localres(port, *args, **kwargs):
     about what PyMOL said — only about what to do with it, which is the point
     of the split.
     """
-    kwargs.setdefault("normalised", normalisation_state(port))
-    return render(local_resolution_view(*args, **kwargs), port=port)
+    # One read, handed to both — which is what a host must do, and what the
+    # required `normalised` argument exists to force.
+    normalised = kwargs.pop("normalised", None)
+    if normalised is None and "normalised" not in kwargs:
+        normalised = normalisation_state(port)
+    return render(
+        local_resolution_view(*args, normalised=normalised, **kwargs),
+        port=port,
+        normalised=normalised,
+    )
 
 
 # ── the grid check ──────────────────────────────────────────────────────────
@@ -457,3 +465,47 @@ def test_the_refusal_explains_what_the_header_is_needed_for(session):
     port, _, _ = session()
     with pytest.raises(PortError, match="share a grid"):
         localres(port, "main", "never_loaded")
+
+
+# ── the normalisation answer must be one answer ─────────────────────────────
+
+
+def test_the_report_and_the_ramp_cannot_disagree_about_units(session):
+    """The view's report and the backend's ramp come from one reading.
+
+    Before the seam both were computed inside the view from a single
+    normalisation_state() call. Split across two readers they could
+    contradict: the colour key listing sigma while the surface was ramped in
+    Angstrom, so the user read resolutions off a table that did not describe
+    the picture. `normalised` is now a required argument on the view and an
+    argument to the backend, so a host reads once and hands the same answer to
+    both — which is what `localres` here does.
+    """
+    port, _, _ = session(get="off")
+    d = localres(port, "main", "locres")
+
+    drawn = d.port.calls("ramp_new")[0][0][2]
+    # With normalisation off the stored values are still resolutions, so the
+    # ramp must carry Angstrom — and the report's table must say the same.
+    assert drawn == pytest.approx([2.0, 3.0, 4.0, 5.0, 6.0]), d.port.call_log
+    assert "2.00 Å" in d.report
+
+    rows = [line for line in d.report.splitlines() if "->" in line and "Å" in line]
+    assert rows, d.report
+    for value, row in zip(drawn, rows, strict=True):
+        assert f"{value:.6g}" in row, f"ramp says {value}, report row says {row!r}"
+
+
+def test_a_contour_is_not_converted_when_the_viewer_did_not_normalise(session):
+    """The breakpoints honour `normalised`; the contour level must too.
+
+    With normalize_ccp4_maps off, PyMOL reads an isosurface level as an
+    absolute map value. Converting 0.05 to 3.16 sigma and sending that gives a
+    surface contoured far above dmax — empty — while the report claims 0.05.
+    """
+    port, _, _ = session(get="off")
+    d = localres(port, "main", "locres", level=0.05, units="absolute")
+    level = d.port.calls("isosurface")[0][0][2]
+    assert level == pytest.approx(0.05), (
+        f"sent {level} to an unnormalised map that reads levels as absolute"
+    )

@@ -190,10 +190,18 @@ def latent_traverse_view(
         used_default = False
 
     levels = frame_levels(ensemble, absolute)
+    # Carry the frame's own 1-based number, not its position among the
+    # survivors. Numbering over the filtered list makes `_03` hold frame 4's
+    # density the moment a frame is dropped for rms=0, and nothing downstream
+    # can tell — which is the off-by-one heterogeneity._natural_key exists to
+    # prevent, reintroduced one layer up.
     usable = [
-        (obj, sigma)
-        for obj, sigma in zip(ensemble.objects, levels, strict=True)
+        (number, obj, sigma)
+        for number, (obj, sigma) in enumerate(zip(ensemble.objects, levels, strict=True), start=1)
         if sigma is not None
+    ]
+    skipped_frames = [
+        number for number, sigma in enumerate(levels, start=1) if sigma is None
     ]
     if not usable:
         raise PortError(
@@ -206,8 +214,8 @@ def latent_traverse_view(
     width = max(2, len(str(ensemble.n_frames)))
     surfaces: list[str] = []
     ops: list = []
-    for index, (obj, sigma) in enumerate(usable, start=1):
-        surface = f"{prefix}_{index:0{width}d}"
+    for number, obj, sigma in usable:
+        surface = f"{prefix}_{number:0{width}d}"
         # Each frame carries its OWN sigma, converted from one absolute level
         # against that frame's header. A fixed sigma across frames contours
         # each against its own normalisation, which flattens away the density
@@ -224,7 +232,7 @@ def latent_traverse_view(
     ops.append(Legend(GAP_LEGEND))
 
     return _report(
-        ensemble, prefix, surfaces, absolute, levels, used_default, build_movie
+        ensemble, prefix, surfaces, absolute, levels, used_default, build_movie, skipped_frames
     ), Scene(ops)
 
 
@@ -236,6 +244,7 @@ def _report(
     levels: list[float | None],
     used_default: bool,
     build_movie: bool,
+    skipped_frames: list[int],
 ) -> str:
     known = [s for s in levels if s is not None]
     lo, hi = min(known), max(known)
@@ -289,10 +298,17 @@ def _report(
         ]
 
     if skipped:
+        # Name them. "1 frame(s) were skipped" plus a gap in the numbering is
+        # not enough for a reader to work out which density belongs to which
+        # latent coordinate, and guessing is how the traversal gets misread.
+        which = ", ".join(f"frame {n}" for n in skipped_frames)
         lines += [
             "",
             f"  {skipped} frame(s) were skipped: their headers report rms=0, so no",
             "  sigma level exists to draw them at. They are loaded but not contoured.",
+            f"  Skipped: {which}. The surfaces keep their own frame numbers, so the",
+            "  sequence has gaps rather than being renumbered — a surface's number",
+            "  is always the frame it was made from.",
         ]
 
     lines += [

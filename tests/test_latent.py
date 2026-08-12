@@ -266,3 +266,28 @@ def test_the_provenance_banner_is_carried(ensemble):
     d = render(latent_traverse_view(name), port=port)
     out = d.report
     assert "Provenance: GENERATED" in out
+
+
+# ── surface names must name the frame they came from ────────────────────────
+
+
+def test_a_skipped_frame_does_not_renumber_the_ones_after_it(ensemble):
+    """Frame 3 is unusable, so the surfaces are 1, 2, 4, 5 — never 1, 2, 3, 4.
+
+    Numbering over the surviving frames makes `_03` hold frame 4's density.
+    Nothing in the report says which frame was dropped, so the user reads each
+    density against the wrong latent coordinate — the off-by-one that
+    heterogeneity._natural_key exists to prevent, reintroduced downstream.
+    """
+    port, name = ensemble(rms=(0.5, 0.6, 0.0, 0.8, 1.0))
+    d = render(latent_traverse_view(name), port=port)
+
+    made = [args[0] for args, _ in d.port.calls("isosurface")]
+    assert made == [f"{name}_surf_{i:02d}" for i in (1, 2, 4, 5)], made
+
+    # And the source volume must match the number in the name.
+    volumes = [args[1] for args, _ in d.port.calls("isosurface")]
+    for surface, volume in zip(made, volumes, strict=True):
+        assert surface.rsplit("_", 1)[1].lstrip("0") == volume.rsplit("f", 1)[1].lstrip("0")
+
+    assert "frame 3" in d.report, "the report must name which frame was skipped"

@@ -55,9 +55,9 @@ def test_differing_atom_counts_make_spread_undefined():
 
 def test_residue_spread_averages_its_atoms():
     atoms = [
-        Atom("A", "1", "MET", "N", "", 1.0, 0.0),
-        Atom("A", "1", "MET", "CA", "", 1.0, 0.0),
-        Atom("A", "2", "ALA", "CA", "", 1.0, 0.0),
+        Atom("A", "1", "MET", "N", "", 1.0, 0.0, "m", 1),
+        Atom("A", "1", "MET", "CA", "", 1.0, 0.0, "m", 2),
+        Atom("A", "2", "ALA", "CA", "", 1.0, 0.0, "m", 3),
     ]
     out = per_residue_spread(atoms, [1.0, 3.0, 5.0])
     assert out[("A", "1")] == pytest.approx(2.0)
@@ -67,7 +67,7 @@ def test_residue_spread_averages_its_atoms():
 def test_misaligned_atoms_and_spread_is_an_error():
     """iterate order and coordinate order diverging is silent corruption."""
     with pytest.raises(PortError, match="orders have diverged"):
-        per_residue_spread([Atom("A", "1", "MET", "CA", "", 1.0, 0.0)], [1.0, 2.0])
+        per_residue_spread([Atom("A", "1", "MET", "CA", "", 1.0, 0.0, "m", 4)], [1.0, 2.0])
 
 
 # -- ensemble_spread_view --------------------------------------------------

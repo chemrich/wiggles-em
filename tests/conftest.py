@@ -28,14 +28,28 @@ def _isolate_module_state():
     forget()
 
 
+def atom_rows(rows) -> list[tuple]:
+    """Pad ``(chain, resi, resn, name, alt, q, b)`` rows out to ATOM_EXPR.
+
+    Atom identity is ``(model, index)`` — chain/residue/name/altloc collide on
+    insertion codes and across a selection spanning two models. Most tests do
+    not care which model an atom is in, so they write seven fields and get a
+    distinct index each; a test *about* identity writes all nine itself.
+    """
+    return [row if len(row) == 9 else (*row, "m", i) for i, row in enumerate(rows, start=1)]
+
+
 def make_atoms(rows) -> list[Atom]:
-    """Build atoms from ``(chain, resi, resn, name, alt, q, b)`` rows."""
-    return [Atom(chain=c, resi=i, resn=n, name=a, alt=alt, q=q, b=b) for c, i, n, a, alt, q, b in rows]
+    """Build atoms from seven- or nine-field rows."""
+    return [
+        Atom(chain=c, resi=i, resn=n, name=a, alt=alt, q=q, b=b, model=model, index=index)
+        for c, i, n, a, alt, q, b, model, index in atom_rows(rows)
+    ]
 
 
 def iterate_response(rows) -> dict:
     """The port response a backend gets when it reads atoms back."""
-    return {"iterate_to_list": list(rows)}
+    return {"iterate_to_list": atom_rows(rows)}
 
 
 class Drawn:
@@ -78,7 +92,7 @@ class Drawn:
         )
 
 
-def render(result, rows=(), *, port=None, preserve_bfactors: bool = True) -> Drawn:
+def render(result, rows=(), *, port=None, preserve_bfactors: bool = True, normalised=None) -> Drawn:
     """Render an already-computed ``(report, scene)`` through both backends.
 
     Rendering through *both* is deliberate. ``FakeBackend`` is strict about ops
@@ -92,17 +106,18 @@ def render(result, rows=(), *, port=None, preserve_bfactors: bool = True) -> Dra
 
     if port is None:
         port = FakePort(iterate_response(rows))
-    pymol = PymolBackend(port, preserve_bfactors=preserve_bfactors)
+    pymol = PymolBackend(port, preserve_bfactors=preserve_bfactors, normalised=normalised)
     pymol.render(scene)
 
     return Drawn(report, scene, port, pymol, fake)
 
 
-def draw(view, rows, *args, preserve_bfactors: bool = True, port=None, **kwargs) -> Drawn:
+def draw(view, rows, *args, preserve_bfactors: bool = True, port=None, normalised=None, **kwargs) -> Drawn:
     """Run an atoms-first view over ``rows`` and render what it returned."""
     return render(
         view(make_atoms(rows), *args, **kwargs),
         rows,
         port=port,
         preserve_bfactors=preserve_bfactors,
+        normalised=normalised,
     )
