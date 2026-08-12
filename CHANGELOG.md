@@ -79,6 +79,34 @@ the viewer. Each is silent — the render looks ordinary and means something els
   `_03` hold frame 4's density and the user read each density against the wrong
   latent coordinate. The report now names which frames were skipped.
 
+The remaining six from the same review. Three are contracts the seam left
+unstated, and the fix for each is to remove a default rather than document one.
+
+- **`Sel.residues` lowers to one term per chain**, using PyMOL's
+  `+`-separated residue list, rather than one parenthesised `or` term per
+  residue. 1123 scored residues on 9C0K was a ~30 KB selection PyMOL evaluated
+  term by term, sent three times, past the 10 s port timeout. The list is never
+  collapsed into ranges — turning 5 and 7 into 5-7 would silently add 6.
+- **The movie is entered.** `mdo` commands run when a frame is entered, and the
+  `frame 1` that did so was dropped when the wiring moved into the backend, so
+  every isosurface stayed enabled and a traversal rendered as one superimposed
+  blob.
+- **Frame wiring names every sibling explicitly** instead of disabling a
+  reconstructed `prefix_*` glob, which also switched off an unrelated
+  `v_model` in the session on each frame step.
+- **`deformation_view` requires `start_state` and `end_state`.** The view no
+  longer reads coordinates, so nothing can check the numbers against the
+  arrays, and an `end_state` defaulting to the last state described a 1→20
+  transition over a 1→2 displacement.
+- **`composition_view` takes a `count_atoms` callable** and hands it the exact
+  `Sel` it is about to colour. A pre-counted dict keyed on the table's own text
+  let a host answer for a differently-scoped selection — `chain B` in a session
+  with a second structure loaded — and the guard passed on atoms that were not
+  in the object at all.
+- **`Sel.first` replaces `rank 0` for labels.** An atom index is numbered over
+  the whole object, so ANDing `rank 0` with a per-part selection matched
+  nothing for every part but one, and no percentages were ever drawn.
+
 ### Notes
 
 Between 2026-08-09 and this split the code lived inside MCPymol as

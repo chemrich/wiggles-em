@@ -121,6 +121,18 @@ class Sel:
         return cls("raw", key=dialect, value=text)
 
     @classmethod
+    def first(cls, inner: Sel) -> Sel:
+        """One atom from ``inner`` — whichever the viewer considers first.
+
+        Labelling wants exactly one atom per part; labelling every atom is
+        unreadable. An index-based narrowing cannot do it, because an atom
+        index is numbered over the whole object and ANDing ``rank 0`` with a
+        per-part selection matches nothing for every part but one. PyMOL and
+        protean both have a first-of operator, which is the honest primitive.
+        """
+        return cls("first", parts=(inner,))
+
+    @classmethod
     def all(cls) -> Sel:
         """Everything. Used by ``Hide`` to clear a slate."""
         return cls("all")

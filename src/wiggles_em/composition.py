@@ -32,6 +32,7 @@ states which sense it is showing — see the compendium entry
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from wiggles_em.port import PortError
@@ -128,9 +129,9 @@ def _parse_text(text: str) -> dict[str, float]:
 
 
 def composition_view(
-    counts: dict[str, int],
     obj: str,
     table: dict[str, float] | str | Path,
+    count_atoms: Callable[[Sel], int],
     *,
     transparency: bool = True,
     label: bool = True,
@@ -144,13 +145,19 @@ def composition_view(
     parse into something else and colour the wrong subunit.
 
     Args:
-        counts: How many atoms each table selection matched, counted by the
-            host before calling. An empty selection is the dangerous case — a
-            viewer accepts it, colours nothing, and leaves a render that looks
-            like a fully-present structure — so it is checked, not discovered
-            visually.
         obj: The object the table's selections apply to.
         table: ``selection -> fraction``, as a dict, an inline string, or a path.
+        count_atoms: How many atoms a selection matches. The view hands over
+            the very :class:`~wiggles_em.scene.Sel` it is about to colour, so
+            the host cannot answer for a differently-scoped one.
+
+            An empty selection is the dangerous case — a viewer accepts it,
+            colours nothing, and leaves a render that looks like a
+            fully-present structure — so it is checked before anything is
+            drawn rather than discovered visually. Taking a pre-counted dict
+            keyed on the table's own text was not enough: a host counting
+            ``chain B`` unscoped, in a session with a second structure loaded,
+            answers for atoms that are not in ``obj`` at all.
         transparency: Also make rarely-present parts transparent in proportion,
             so a half-present subunit reads as half there.
         label: Write the fraction next to each part.
@@ -168,6 +175,8 @@ def composition_view(
     """
     parsed = parse_composition_table(table)
 
+    scoped = {selection: Sel.obj(obj) & Sel.raw(selection) for selection in parsed}
+    counts = {selection: count_atoms(sel) for selection, sel in scoped.items()}
     empty = [selection for selection in parsed if not counts.get(selection)]
     if empty:
         raise PortError(
@@ -180,20 +189,21 @@ def composition_view(
     rare, present = palette
     ops: list[SceneOp] = []
     for selection, fraction in parsed.items():
-        scoped = Sel.obj(obj) & Sel.raw(selection)
+        part = scoped[selection]
         r, g, b = _blend(rare, present, fraction)
-        ops.append(ColorFlat(scoped, (r, g, b)))
+        ops.append(ColorFlat(part, (r, g, b)))
         if transparency:
             # A part present in 40% of particles is drawn 60% transparent.
             # Stated as opacity: transparency is its inverse and every viewer
             # picks a different one of the two.
-            ops.append(Opacity(scoped, round(fraction, 3)))
+            ops.append(Opacity(part, round(fraction, 3)))
         if label:
+            # One label per part. `rank 0` narrowed by the whole object, so
+            # ANDing it with a part matched nothing for every part but the one
+            # holding atom 0 — and usually not even that, since atom 0 is
+            # rarely a CA. `first` narrows within the selection it is given.
             ops.append(
-                Label(
-                    scoped & Sel.prop("name", "CA") & Sel.prop("rank", 0),
-                    f"{fraction:.0%}",
-                )
+                Label(Sel.first(part & Sel.prop("name", "CA")), f"{fraction:.0%}")
             )
     ops.append(Legend(SENSE_2_LEGEND, sense=Sense.PARTICLE_COMPOSITION))
 

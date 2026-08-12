@@ -18,19 +18,24 @@ from wiggles_em.port import ITERATE_TO_LIST, PortError
 from wiggles_em.scene import ColorFlat, Label, Opacity, Sense
 
 
-def _counts(table, **overrides):
-    """Atom counts per table selection, as the host would have counted them.
+def _counter(**overrides):
+    """A count_atoms the view can call, answering by the raw selection text.
 
-    Counting moved out of the view with the Scene seam: it is a viewer read,
-    and the view's job is to refuse when a count is zero rather than to go and
-    get it. The refusal is what these tests are about, and it is unchanged.
+    Counting is a viewer read, so it stays outside the view — but the view
+    hands over the exact Sel it is about to colour, which is what stops a host
+    answering for a differently-scoped selection.
     """
-    return {sel: overrides.get(sel, 10) for sel in table}
+
+    def count(sel):
+        raw = next(s.value for s in sel.walk() if s.kind == "raw")
+        return overrides.get(raw, 10)
+
+    return count
 
 
 def _view(table, **kwargs):
-    counts = kwargs.pop("counts", None)
-    return render(composition_view(counts or _counts(table), "obj", table, **kwargs))
+    count = kwargs.pop("count_atoms", None) or _counter()
+    return render(composition_view("obj", table, count, **kwargs))
 
 
 # ── the table ────────────────────────────────────────────────────────────────
@@ -123,18 +128,18 @@ def test_a_selection_matching_nothing_is_refused():
     """PyMOL would accept it, colour nothing, and leave a render that looks like
     a fully-present structure."""
     with pytest.raises(PortError, match="matched no atoms"):
-        composition_view({"chain Z": 0}, "obj", {"chain Z": 0.5})
+        composition_view("obj", {"chain Z": 0.5}, _counter(**{"chain Z": 0}))
 
 
 def test_the_refusal_explains_what_the_render_would_have_looked_like():
     with pytest.raises(PortError, match="looks like a fully-present structure"):
-        composition_view({"chain Z": 0}, "obj", {"chain Z": 0.5})
+        composition_view("obj", {"chain Z": 0.5}, _counter(**{"chain Z": 0}))
 
 
 def test_nothing_is_drawn_when_a_selection_is_empty():
     table = {"chain A": 1.0, "chain Z": 0.5}
     with pytest.raises(PortError):
-        composition_view(_counts(table, **{"chain Z": 0}), "obj", table)
+        composition_view("obj", table, _counter(**{"chain Z": 0}))
 
 
 # ── the view ─────────────────────────────────────────────────────────────────
@@ -194,6 +199,56 @@ def test_the_colour_direction_is_stated():
 
 
 def test_atom_counts_reach_the_report():
-    table = {"chain A": 0.4}
-    out = _view(table, counts=_counts(table, **{"chain A": 137})).report
+    out = _view({"chain A": 0.4}, count_atoms=_counter(**{"chain A": 137})).report
     assert "137 atoms" in out
+
+
+# ── the guard must measure what is about to be coloured ─────────────────────
+
+
+def test_the_count_is_taken_of_the_selection_that_will_be_coloured():
+    """The guard exists because a viewer accepts an empty selection silently.
+
+    Counting the table's text unscoped measures something else: in a session
+    with a second structure loaded, `chain B` matches atoms that are not in
+    `obj`, the guard passes, and the subunit the table calls 20%-present is
+    drawn in no colour at all — reading as fully present.
+    """
+    asked: list = []
+
+    def count(sel):
+        asked.append(sel)
+        return 10
+
+    composition_view("obj", {"chain B": 0.2}, count)
+
+    assert asked, "the view must ask for a count"
+    (sel,) = asked
+    # It must hand over the selection it is about to colour, scoped to obj,
+    # so the host cannot answer for a different one.
+    kinds = {s.kind for s in sel.walk()}
+    assert "obj" in kinds and "raw" in kinds, sel
+
+
+def test_a_part_matching_nothing_in_this_object_is_still_refused():
+    with pytest.raises(PortError, match="matched no atoms"):
+        composition_view("obj", {"chain Z": 0.5}, lambda sel: 0)
+
+
+# ── labels must land on an atom ─────────────────────────────────────────────
+
+
+def test_the_label_selection_can_match_an_atom_in_every_part():
+    """`rank 0` is the atom's index within the whole object, so ANDing it with
+    a per-part selection matches nothing for every part but the one holding
+    atom 0 — and usually not even that, since atom 0 is rarely a CA."""
+    d = _view({"chain A": 0.4, "chain B": 0.2})
+
+    labels = d.scene.of(Label)
+    assert len(labels) == 2, d.scene
+    for op in labels:
+        kinds = [s.kind for s in op.sel.walk()]
+        assert "first" in kinds, f"no first-atom narrowing in {op.sel}"
+        assert not any(
+            s.kind == "prop" and s.key == "rank" for s in op.sel.walk()
+        ), "rank is object-wide and cannot narrow a part"

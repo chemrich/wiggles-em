@@ -89,7 +89,22 @@ def render_selection(sel: Sel) -> str:
         residues = cast("tuple[tuple[str, str], ...]", sel.value)
         if not residues:
             return "none"
-        return "(" + " or ".join(f"(chain {c} and resi {r})" for c, r in residues) + ")"
+        # One term per *chain*, not per residue. PyMOL takes a `+`-separated
+        # residue list, so 1123 scored residues in one chain become one term
+        # rather than 1123 parenthesised `or`s that PyMOL evaluates
+        # individually across the whole object. The list is emitted verbatim
+        # and never collapsed into ranges: turning 5 and 7 into 5-7 would
+        # silently add residue 6 to the set.
+        by_chain: dict[str, list[str]] = {}
+        for chain, resi in residues:
+            by_chain.setdefault(chain, []).append(resi)
+        terms = [
+            f"(chain {chain} and resi {'+'.join(numbers)})"
+            for chain, numbers in by_chain.items()
+        ]
+        return terms[0] if len(terms) == 1 else "(" + " or ".join(terms) + ")"
+    if sel.kind == "first":
+        return f"(first ({render_selection(sel.parts[0])}))"
     if sel.kind == "raw":
         if sel.key != "pymol":
             raise Refused(
@@ -392,11 +407,24 @@ class PymolBackend:
         if not op.build_timeline:
             return
         call(self.port, "mset", f"1 x{len(op.names)}")
-        prefix = op.names[0].rsplit("_", 1)[0] if op.names else ""
         for index, name in enumerate(op.names, start=1):
+            # Every sibling named explicitly. The previous version recovered a
+            # prefix with rsplit and disabled `prefix_*`, which also switched
+            # off an unrelated `v_model` in the session on every frame step —
+            # the wildcard the Delete op's contract exists to forbid. Frames
+            # already carries the exact names, so no string surgery is needed.
+            #
+            # Quadratic in the number of frames, in string length only. A
+            # traversal is tens of frames and these are the cheapest commands
+            # PyMOL has.
+            others = "; ".join(f"disable {other}" for other in op.names if other != name)
             # mdo attaches a command line to a frame; there is no cmd
             # equivalent that takes the command as data.
-            call(self.port, "mdo", index, f"disable {prefix}_*; enable {name}")
+            call(self.port, "mdo", index, f"{others}; enable {name}" if others else f"enable {name}")
+        # mdo commands run when a frame is *entered*. Without this the timeline
+        # is built and never executed, so every isosurface stays enabled and
+        # the traversal renders as one superimposed blob.
+        call(self.port, "frame", 1)
 
     def _morph(self, op: Morph) -> None:
         try:

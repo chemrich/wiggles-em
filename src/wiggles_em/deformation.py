@@ -187,8 +187,8 @@ def deformation_view(
     obj: str,
     n_states: int,
     *,
-    start_state: int = 1,
-    end_state: int | None = None,
+    start_state: int,
+    end_state: int,
     arrows: bool = True,
     arrow_scale: float = 1.0,
     max_arrows: int = DEFAULT_MAX_ARROWS,
@@ -203,6 +203,15 @@ def deformation_view(
         end_coords: Coordinates in the state being measured to.
         n_states: How many states the object has, so the range check below can
             refuse an out-of-range request without asking a viewer.
+        start_state: Which state ``start_coords`` was read from.
+        end_state: Which state ``end_coords`` was read from.
+
+            **Both required, with no defaults, on purpose.** The view no longer
+            fetches coordinates, so nothing here can check that the numbers
+            match the arrays — and an ``end_state`` that defaulted to the last
+            state described a 1→20 transition over a 1→2 displacement, in a
+            report a reader would quote. The host read the coordinates and is
+            the only thing that knows which states they came from.
         obj: A multi-state object — an ensemble, a morph, or any model whose
             states are conformations.
         start_state: The state to measure from.
@@ -232,7 +241,6 @@ def deformation_view(
             f"  A deformation is a difference — there is nothing here to difference."
         ), Scene()
 
-    end_state = n_states if end_state is None else end_state
     for label, state in (("start_state", start_state), ("end_state", end_state)):
         if not 1 <= state <= n_states:
             raise PortError(f"{label}={state} is outside the object's 1..{n_states} states")

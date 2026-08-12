@@ -40,6 +40,8 @@ def _coords(shifts):
 def _view(shifts, *, n_states=2, **kwargs):
     """Run deformation_view over a shift pattern and render what it returned."""
     start, end = _coords(shifts)
+    kwargs.setdefault("start_state", 1)
+    kwargs.setdefault("end_state", min(2, n_states))
     return draw(deformation_view, ROWS, start, end, "obj", n_states, **kwargs)
 
 
@@ -249,3 +251,28 @@ def test_the_report_forbids_reading_a_population_off_an_arrow():
 
     assert "MOTION IS THE WELL-SUPPORTED CLAIM" in out
     assert "Do NOT read them as: this fraction of particles moved" in out
+
+
+# ── the states the coordinates actually came from ───────────────────────────
+
+
+def test_the_reported_states_must_be_the_ones_the_coords_came_from():
+    """Before the seam the view fetched the coordinates itself, so the state
+    numbers it printed were the states it had read. Now the host supplies both
+    and nothing links them: an `end_state` that defaults to the last state
+    describes a 1->20 transition over a 1->2 displacement, and the user cites a
+    magnitude for a motion that was never computed."""
+    start, end = _coords([0.0, 0.0, 3.0, 6.0])
+    with pytest.raises(TypeError):
+        # The host read states 1 and 2 of a 20-state object; it must say so
+        # rather than letting the view guess.
+        deformation_view(make_atoms(ROWS), start, end, "obj", 20)
+
+
+def test_states_are_reported_as_given():
+    start, end = _coords([0.0, 0.0, 3.0, 6.0])
+    report, _ = deformation_view(
+        make_atoms(ROWS), start, end, "obj", 20, start_state=1, end_state=2
+    )
+    assert "state 1 -> 2" in report
+    assert "1 -> 20" not in report

@@ -58,7 +58,6 @@ def _all_tier3_results(tmp_path) -> dict[str, tuple]:
     _, name = _ensemble(tmp_path, "ens")
     _, unknown_name = _ensemble(tmp_path, "bare", marker=None)
     table = {"chain A": 0.2, "chain B": 1.0}
-    counts = dict.fromkeys(table, 10)
     start = [(0.0, float(i), 0.0) for i in range(len(ROWS))]
     end = [(float(i), float(i), 0.0) for i in range(len(ROWS))]
     atoms = make_atoms(ROWS)
@@ -76,11 +75,13 @@ def _all_tier3_results(tmp_path) -> dict[str, tuple]:
         ),
         "latent_traverse_view": latent_traverse_view(name),
         "latent_traverse_view/refused": latent_traverse_view(unknown_name),
-        "deformation_view": deformation_view(atoms, start, end, "obj", 2),
-        "deformation_view/no_arrows": deformation_view(
-            atoms, start, end, "obj", 2, arrows=False
+        "deformation_view": deformation_view(
+            atoms, start, end, "obj", 2, start_state=1, end_state=2
         ),
-        "composition_view": composition_view(counts, "obj", table),
+        "deformation_view/no_arrows": deformation_view(
+            atoms, start, end, "obj", 2, start_state=1, end_state=2, arrows=False
+        ),
+        "composition_view": composition_view("obj", table, lambda sel: 10),
     }
 
 
@@ -177,7 +178,7 @@ def test_both_occupancy_tools_name_their_sense(tmp_path):
     from wiggles_em.occupancy import occupancy_view
 
     sense1, scene1 = occupancy_view(make_atoms(ROWS), "obj")
-    sense2, scene2 = composition_view({"chain A": 10}, "obj", {"chain A": 0.4})
+    sense2, scene2 = composition_view("obj", {"chain A": 0.4}, lambda sel: 10)
 
     # Each report must *declare* its own sense, not merely mention the word.
     assert "Occupancy shown is SENSE 1" in sense1
