@@ -28,8 +28,9 @@ from __future__ import annotations
 
 from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import loaded_map
-from wiggles_em.port import PortError, PymolPort, call
+from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
+from wiggles_em.scene import Isosurface, Legend, Rep, Scene, Sel, Unit
 
 #: Used when no level is given and no author contour is available. A generic
 #: starting point, not a recommendation for any particular map — the report
@@ -62,7 +63,6 @@ def to_absolute(header: MapHeader, sigma: float) -> float:
 
 
 def density_view(
-    port: PymolPort,
     map_obj: str,
     selection: str,
     *,
@@ -70,11 +70,16 @@ def density_view(
     units: str = "sigma",
     carve: float = DEFAULT_CARVE,
     name: str | None = None,
-) -> str:
+) -> tuple[str, Scene]:
     """Draw an isomesh around ``selection``, reporting the level in both units.
 
+    The scene carries the level in the unit the *caller* gave, tagged with
+    which one it is, and the backend converts if its viewer needs the other.
+    Both units go in the report regardless, because that is the only way a
+    reader can tell an EMDB author contour from a sigma level — the confusion
+    this view exists to prevent.
+
     Args:
-        port: A live or fake PyMOL port.
         map_obj: A volume loaded through :func:`wiggles_em.maps.load_map`.
         selection: What to carve the mesh around.
         level: Contour level. ``None`` uses :data:`DEFAULT_SIGMA` and says so.
@@ -123,7 +128,21 @@ def density_view(
         absolute = to_absolute(header, sigma)
 
     mesh = name or f"{map_obj}_mesh"
-    call(port, "isomesh", mesh, map_obj, sigma, selection, carve=carve)
+    # Emitted in sigma because that is what was resolved above for the report;
+    # tagging the unit is what stops a backend guessing. A viewer that wants
+    # absolute converts, rather than every view remembering to.
+    scene = Scene([
+        Isosurface(
+            mesh,
+            map_obj,
+            level=sigma,
+            unit=Unit.SIGMA,
+            style=Rep.MESH,
+            carve_around=Sel.raw(selection),
+            carve_radius=carve,
+        ),
+        Legend(provenance_banner(map_obj), provenance=map_obj),
+    ])
 
     absolute_text = f"{absolute:.6g}" if absolute is not None else "unknown (rms=0)"
     lines = [
@@ -146,7 +165,7 @@ def density_view(
                 "",
                 f"  {accession} has an author-recommended contour published by the",
                 "  depositor. It is an ABSOLUTE value, so pass it as:",
-                f"      density_view(port, {map_obj!r}, {selection!r}, "
+                f"      density_view({map_obj!r}, {selection!r}, "
                 f"level=<value>, units='absolute')",
                 "  Retrieve it from:",
                 f"      https://www.ebi.ac.uk/emdb/api/entry/{accession}"
@@ -168,4 +187,4 @@ def density_view(
         lines += ["", f"  Geometry warnings ({len(warnings)})"]
         lines += [f"    ! {w}" for w in warnings]
 
-    return "\n".join(lines)
+    return "\n".join(lines), scene

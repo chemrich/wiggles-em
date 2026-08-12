@@ -34,7 +34,17 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from wiggles_em.port import PortError, PymolPort, call
+from wiggles_em.port import PortError
+from wiggles_em.scene import (
+    ColorFlat,
+    Label,
+    Legend,
+    Opacity,
+    Scene,
+    SceneOp,
+    Sel,
+    Sense,
+)
 
 SENSE_2_LEGEND = (
     "THIS IS OCCUPANCY IN SENSE 2 — COMPOSITIONAL. Each value is the fraction of "
@@ -118,18 +128,27 @@ def _parse_text(text: str) -> dict[str, float]:
 
 
 def composition_view(
-    port: PymolPort,
+    counts: dict[str, int],
     obj: str,
     table: dict[str, float] | str | Path,
     *,
     transparency: bool = True,
     label: bool = True,
     palette: tuple[str, str] = ("red", "skyblue"),
-) -> str:
+) -> tuple[str, Scene]:
     """Colour parts of ``obj`` by how often they are present across particles.
 
+    The table's selections are the *caller's* text in the viewer's own dialect,
+    so they travel as :meth:`~wiggles_em.scene.Sel.raw`. A backend that cannot
+    parse that dialect refuses rather than passing along a string that might
+    parse into something else and colour the wrong subunit.
+
     Args:
-        port: A live or fake PyMOL port.
+        counts: How many atoms each table selection matched, counted by the
+            host before calling. An empty selection is the dangerous case — a
+            viewer accepts it, colours nothing, and leaves a render that looks
+            like a fully-present structure — so it is checked, not discovered
+            visually.
         obj: The object the table's selections apply to.
         table: ``selection -> fraction``, as a dict, an inline string, or a path.
         transparency: Also make rarely-present parts transparent in proportion,
@@ -149,40 +168,36 @@ def composition_view(
     """
     parsed = parse_composition_table(table)
 
-    # An empty selection is the dangerous case: PyMOL accepts it, nothing is
-    # coloured, and the render looks like a structure that is simply all
-    # present. Check before drawing rather than discovering it visually.
-    empty: list[str] = []
-    counts: dict[str, int] = {}
-    for selection in parsed:
-        scoped = f"({obj}) and ({selection})"
-        result = port.query("count_atoms", scoped)
-        count = result if isinstance(result, int) else 0
-        counts[selection] = count
-        if count == 0:
-            empty.append(selection)
-
+    empty = [selection for selection in parsed if not counts.get(selection)]
     if empty:
         raise PortError(
             f"{len(empty)} selection(s) in the table matched no atoms in {obj!r}: "
-            f"{empty}. PyMOL would have accepted these silently, coloured nothing, "
-            f"and left a render that looks like a fully-present structure. Check the "
-            f"chain identifiers or the object name."
+            f"{empty}. A viewer would have accepted these silently, coloured "
+            f"nothing, and left a render that looks like a fully-present "
+            f"structure. Check the chain identifiers or the object name."
         )
 
     rare, present = palette
+    ops: list[SceneOp] = []
     for selection, fraction in parsed.items():
-        scoped = f"({obj}) and ({selection})"
-        call(port, "set_color", f"_wg_comp_{_slug(selection)}", _blend(rare, present, fraction))
-        call(port, "color", f"_wg_comp_{_slug(selection)}", scoped)
+        scoped = Sel.obj(obj) & Sel.raw(selection)
+        r, g, b = _blend(rare, present, fraction)
+        ops.append(ColorFlat(scoped, (r, g, b)))
         if transparency:
             # A part present in 40% of particles is drawn 60% transparent.
-            call(port, "set", "cartoon_transparency", round(1.0 - fraction, 3), scoped)
-            call(port, "set", "transparency", round(1.0 - fraction, 3), scoped)
+            # Stated as opacity: transparency is its inverse and every viewer
+            # picks a different one of the two.
+            ops.append(Opacity(scoped, round(fraction, 3)))
         if label:
-            call(port, "label", f"({scoped}) and name CA and rank 0", f'"{fraction:.0%}"')
+            ops.append(
+                Label(
+                    scoped & Sel.prop("name", "CA") & Sel.prop("rank", 0),
+                    f"{fraction:.0%}",
+                )
+            )
+    ops.append(Legend(SENSE_2_LEGEND, sense=Sense.PARTICLE_COMPOSITION))
 
-    return _report(obj, parsed, counts, transparency)
+    return _report(obj, parsed, counts, transparency), Scene(ops)
 
 
 def _slug(selection: str) -> str:

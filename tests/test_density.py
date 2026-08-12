@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from conftest import render
 from test_mapinfo import write_map
 
 from wiggles_em.density import DEFAULT_SIGMA, density_view, to_absolute, to_sigma
@@ -10,6 +11,7 @@ from wiggles_em.mapinfo import read_map_header
 from wiggles_em.maps import forget_map, load_map
 from wiggles_em.port import FakePort, PortError
 from wiggles_em.provenance import Provenance
+from wiggles_em.scene import Isosurface, Unit
 
 
 @pytest.fixture(autouse=True)
@@ -74,28 +76,28 @@ def test_real_emdb_contour_converts_to_a_sensible_sigma(loaded):
 
 def test_reports_the_level_in_both_units(loaded):
     port, obj, _ = loaded()
-    out = density_view(port, obj, "chain A", level=2.0)
+    d = render(density_view(obj, "chain A", level=2.0), port=port)
 
-    assert "2 sigma" in out
-    assert "absolute" in out
-    assert port.calls("isomesh")[0][0][:3] == (f"{obj}_mesh", obj, 2.0), port.call_log
+    assert "2 sigma" in d.report
+    assert "absolute" in d.report
+    assert d.port.calls("isomesh")[0][0][:3] == (f"{obj}_mesh", obj, 2.0), d.port.call_log
 
 
 def test_absolute_level_is_converted_before_reaching_pymol(loaded):
     """The whole point: PyMOL contours in sigma."""
     port, obj, _ = loaded()
-    out = density_view(port, obj, "chain A", level=1.0, units="absolute")
+    d = render(density_view(obj, "chain A", level=1.0, units="absolute"), port=port)
 
-    assert port.calls("isomesh")[0][0][2] == pytest.approx(2.0), port.call_log
-    assert "would contour near zero and show mostly noise" in out
+    assert d.port.calls("isomesh")[0][0][2] == pytest.approx(2.0), d.port.call_log
+    assert "would contour near zero and show mostly noise" in d.report
 
 
 def test_default_level_is_labelled_as_generic(loaded):
     port, obj, _ = loaded()
-    out = density_view(port, obj, "chain A")
+    d = render(density_view(obj, "chain A"), port=port)
 
-    assert f"{DEFAULT_SIGMA} sigma was used" in out
-    assert "not a recommendation for this map" in out
+    assert f"{DEFAULT_SIGMA} sigma was used" in d.report
+    assert "not a recommendation for this map" in d.report
 
 
 def test_emdb_map_points_at_the_author_contour(tmp_path):
@@ -106,58 +108,72 @@ def test_emdb_map_points_at_the_author_contour(tmp_path):
     load_map(port, path, "emd_30913")
 
     port = FakePort({"get_names": ["emd_30913"]})
-    out = density_view(port, "emd_30913", "chain A")
+    d = render(density_view("emd_30913", "chain A"), port=port)
 
-    assert "EMD-30913 has an author-recommended contour" in out
-    assert "ABSOLUTE value" in out
-    assert "units='absolute'" in out
-    assert "ebi.ac.uk/emdb/api/entry/EMD-30913" in out
+    assert "EMD-30913 has an author-recommended contour" in d.report
+    assert "ABSOLUTE value" in d.report
+    assert "units='absolute'" in d.report
+    assert "ebi.ac.uk/emdb/api/entry/EMD-30913" in d.report
 
 
 def test_non_emdb_map_does_not_invent_an_author_contour(loaded):
     port, obj, _ = loaded("plain.mrc")
-    out = density_view(port, obj, "chain A")
-    assert "author-recommended" not in out
+    d = render(density_view(obj, "chain A"), port=port)
+    assert "author-recommended" not in d.report
 
 
 def test_carries_the_provenance_banner(loaded):
     """I1: this renders a volume, so the readout must say where it came from."""
     port, obj, _ = loaded()
-    out = density_view(port, obj, "chain A")
-    assert "Provenance: MEASURED" in out
+    d = render(density_view(obj, "chain A"), port=port)
+    assert "Provenance: MEASURED" in d.report
+    # I1 on the scene, not only in the prose: a view that renders a volume
+    # carries a provenance legend as a value, which a substring cannot fake.
+    assert any(op.provenance == obj for op in d.scene.legends), d.scene
 
 
 def test_unloaded_map_is_refused_with_the_reason(loaded):
-    port = FakePort()
     with pytest.raises(PortError, match="not loaded through load_map"):
-        density_view(port, "never_loaded", "chain A")
+        density_view("never_loaded", "chain A")
 
 
 def test_refusal_explains_the_unit_hazard(loaded):
     """The error should teach the trap, not just decline."""
     with pytest.raises(PortError, match="author contour gets used as a sigma level"):
-        density_view(FakePort(), "never_loaded", "chain A")
+        density_view("never_loaded", "chain A")
 
 
 def test_bad_units_are_rejected(loaded):
-    port, obj, _ = loaded()
+    _, obj, _ = loaded()
     with pytest.raises(ValueError, match="must be 'sigma' or 'absolute'"):
-        density_view(port, obj, "chain A", level=1.0, units="angstrom")
+        density_view(obj, "chain A", level=1.0, units="angstrom")
 
 
 def test_carve_radius_is_passed_through(loaded):
     port, obj, _ = loaded()
-    density_view(port, obj, "chain A", level=1.0, carve=3.5)
-    assert port.calls("isomesh")[0][1]["carve"] == 3.5
+    d = render(density_view(obj, "chain A", level=1.0, carve=3.5), port=port)
+    assert d.port.calls("isomesh")[0][1]["carve"] == 3.5
+    assert d.scene.of(Isosurface)[0].carve_radius == 3.5
 
 
 def test_mesh_name_can_be_overridden(loaded):
     port, obj, _ = loaded()
-    density_view(port, obj, "chain A", level=1.0, name="pocket")
-    assert port.calls("isomesh")[0][0][0] == "pocket"
+    d = render(density_view(obj, "chain A", level=1.0, name="pocket"), port=port)
+    assert d.port.calls("isomesh")[0][0][0] == "pocket"
 
 
 def test_geometry_warnings_reach_the_report(loaded):
     port, obj, _ = loaded("aniso.mrc", nx=100, ny=100, nz=100, cella=(100.0, 100.0, 150.0))
-    out = density_view(port, obj, "chain A", level=1.0)
-    assert "ANISOTROPIC" in out
+    d = render(density_view(obj, "chain A", level=1.0), port=port)
+    assert "ANISOTROPIC" in d.report
+
+
+def test_the_scene_names_the_unit_it_states_the_level_in(loaded):
+    """A bare number is the trap. The op carries which unit it means, so a
+    backend converts instead of guessing — and Mol*, which takes absolute
+    levels natively, is not forced through PyMOL's sigma at all."""
+    port, obj, _ = loaded()
+    d = render(density_view(obj, "chain A", level=2.0), port=port)
+    (op,) = d.scene.of(Isosurface)
+    assert op.unit is Unit.SIGMA
+    assert op.level == 2.0

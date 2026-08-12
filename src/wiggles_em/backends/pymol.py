@@ -39,6 +39,7 @@ from wiggles_em.scene import (
     Isosurface,
     Label,
     Legend,
+    Morph,
     Opacity,
     Refused,
     Rep,
@@ -61,6 +62,10 @@ _CGO_CONE = 27.0
 #: A dict lookup in one ``alter`` beats one ``alter`` per residue: the round
 #: trips stop scaling with the size of the structure.
 _STORED = "stored.wiggles_scalar"
+
+#: Sentinel: the normalisation setting has not been asked for yet. None is a
+#: real answer here ("PyMOL would not say"), so it cannot double as "unknown".
+_UNREAD = object()
 
 #: Representations PyMOL draws. ``MESH`` is not one of them — a mesh is a
 #: property of an isosurface object, not of a selection.
@@ -106,6 +111,36 @@ def render_selection(sel: Sel) -> str:
     raise Refused(f"unknown selection kind {sel.kind!r}")
 
 
+def normalisation_state(port: PymolPort) -> bool | None:
+    """Is ``normalize_ccp4_maps`` on? None when PyMOL will not say.
+
+    Lives here rather than with the views because it is a question only PyMOL
+    can be asked — it is PyMOL's per-map normalisation that puts a resolution
+    ramp's breakpoints in sigma in the first place. ``local_resolution_view``
+    takes the answer as an argument, so a host that does not normalise passes
+    ``False`` and the arithmetic comes out right for it too.
+
+    Read now, not at load time, which is the honest limitation: a session that
+    had it off when the map was loaded and on now would report the wrong thing.
+
+    **What a real PyMOL returns, checked rather than assumed:** ``'1'`` — the
+    *string* ``'1'``, not ``'on'`` and not the integer ``1`` (open-source PyMOL,
+    2026-08-09, via ``tools/livefire.py``). The parse stays tolerant of the
+    other spellings because that answer is one build's, and an older plugin may
+    not expose ``get`` at all, which is unknown rather than an error.
+    """
+    try:
+        raw = port.query("get", "normalize_ccp4_maps")
+    except PortError:
+        return None
+    text = str(raw).strip().lower()
+    if text in ("on", "1", "1.0", "true", "yes"):
+        return True
+    if text in ("off", "0", "0.0", "false", "no"):
+        return False
+    return None
+
+
 class PymolBackend:
     """Draws a Scene through a :class:`~wiggles_em.port.PymolPort`."""
 
@@ -125,6 +160,8 @@ class PymolBackend:
         #: has nothing to restore. Putting the note where the behaviour is
         #: keeps the two from drifting apart.
         self.notes: list[str] = []
+        #: Cached answer to ``normalize_ccp4_maps``, read once per backend.
+        self._normalised: bool | object | None = _UNREAD
 
     # -- entry point -------------------------------------------------------
 
@@ -282,27 +319,53 @@ class PymolBackend:
                 f"{op.volume!r} was not loaded through load_map, so its header "
                 f"is unknown and its breakpoints cannot be converted."
             )
-        # Breakpoints are in the second volume's own units and convert against
-        # ITS header — a different sigma scale from the density map's contour
-        # level. This is the half of the sigma trap that is easiest to miss.
-        sigmas = [to_sigma(entry.header, point) for point in op.breakpoints]
+        # Breakpoints are in the second volume's own units (Angstrom) and
+        # convert against ITS header — a different sigma scale from the density
+        # map's contour level. This is the half of the sigma trap that is
+        # easiest to miss.
+        #
+        # Unless PyMOL was told not to normalise, in which case the stored
+        # values are still resolutions and converting would be the error. An
+        # unanswerable question is the unknown case, and the PyMOL default is
+        # on, so unknown converts.
+        if self._normalised is _UNREAD:
+            self._normalised = normalisation_state(self.port)
+        if self._normalised is False:
+            sigmas = list(op.breakpoints)
+        else:
+            sigmas = [to_sigma(entry.header, point) for point in op.breakpoints]
         ramp = f"{op.surface}_ramp"
         colours = [self._colour_name(c) for c in op.palette]
         call(self.port, "ramp_new", ramp, op.volume, sigmas, colours)
         call(self.port, "set", "surface_color", ramp, op.surface)
+        self.notes.append(
+            f"  Coloured through PyMOL ramp `{ramp}`. The ramp must outlive the "
+            f"surface — deleting it un-colours it, because the colour is not "
+            f"baked into the mesh."
+        )
 
     # -- geometry, sequences, lifecycle -----------------------------------
 
     def _arrows(self, op: Arrows) -> None:
         buffer: list[float] = []
-        for start, end, colour in op.segments:
+        for arrow in op.segments:
+            colour = arrow.colour
             r, g, b = colour if not isinstance(colour, str) else (1.0, 1.0, 1.0)
-            shaft_end = tuple(s + (e - s) * 0.75 for s, e in zip(start, end, strict=True))
+            shaft_end = tuple(
+                s + (e - s) * 0.75 for s, e in zip(arrow.start, arrow.end, strict=True)
+            )
             buffer += [
-                _CGO_CYLINDER, *start, *shaft_end, op.radius, r, g, b, r, g, b,
-                _CGO_CONE, *shaft_end, *end, op.radius * 2.2, 0.0, r, g, b, r, g, b, 1.0, 1.0,
+                _CGO_CYLINDER, *arrow.start, *shaft_end, arrow.radius, r, g, b, r, g, b,
+                _CGO_CONE, *shaft_end, *arrow.end, arrow.radius * 2.2, 0.0,
+                r, g, b, r, g, b, 1.0, 1.0,
             ]  # fmt: skip
-        call(self.port, "load_cgo", buffer, "wgf_arrows")
+        if not buffer:
+            return
+        # Delete first: load_cgo onto an existing name appends rather than
+        # replaces, so a second call would leave the previous arrows behind and
+        # the picture would show two displacements at once.
+        call(self.port, "delete", op.name)
+        call(self.port, "load_cgo", buffer, op.name)
 
     def _frames(self, op: Frames) -> None:
         if not op.build_timeline:
@@ -313,6 +376,35 @@ class PymolBackend:
             # mdo attaches a command line to a frame; there is no cmd
             # equivalent that takes the command as data.
             call(self.port, "mdo", index, f"disable {prefix}_*; enable {name}")
+
+    def _morph(self, op: Morph) -> None:
+        try:
+            call(self.port, "morph", op.name, op.obj, refinement=0, steps=op.steps)
+        except PortError as exc:
+            if "incentive-only" not in str(exc).lower():
+                raise
+            # cmd.morph is Incentive-only. Confirmed against open-source PyMOL
+            # on 2026-08-08, which is what most users run — so for most users
+            # the interpolation half of morph_states does not exist here. The
+            # judgement half is the topology check, it already ran in the view,
+            # and it does not depend on a licence. Reporting beats raising.
+            #
+            # None of this is true of protean, which interpolates natively, so
+            # it belongs in this backend rather than in the view's report.
+            self.notes += [
+                "  Morph NOT created: cmd.morph is Incentive-only and this is",
+                "  open-source PyMOL.",
+                "",
+                "  The topology check is the part of this tool that carries a",
+                "  judgement, and it passed — these states can be interpolated",
+                "  meaningfully. To see the motion without Incentive PyMOL, step",
+                "  the states directly (they are observed, unlike interpolated",
+                "  frames):",
+                "      set all_states, on      # all of them at once, or",
+                "      mset 1 x<n_states>      # play them as frames",
+                "",
+                "  ensemble_spread_view shows the same variation as a static image.",
+            ]
 
     def _delete(self, op: Delete) -> None:
         for name in op.names:
@@ -338,4 +430,4 @@ def draw(port: PymolPort, scene: Scene) -> PymolBackend:
     return backend
 
 
-__all__ = ["PymolBackend", "draw", "render_selection"]
+__all__ = ["PymolBackend", "draw", "normalisation_state", "render_selection"]

@@ -15,6 +15,7 @@ these invariants constrain is what the package says to a user.
 from __future__ import annotations
 
 import pytest
+from conftest import make_atoms, render
 from test_mapinfo import write_map
 
 from wiggles_em.composition import composition_view
@@ -22,6 +23,7 @@ from wiggles_em.deformation import deformation_view
 from wiggles_em.heterogeneity import forget_ensemble, load_ensemble
 from wiggles_em.latent import contains_absence_claim, latent_traverse_view
 from wiggles_em.port import FakePort
+from wiggles_em.scene import Scatter, Sense
 
 ROWS = [
     # One partial occupancy so occupancy_view takes its real path rather than
@@ -51,35 +53,42 @@ def _ensemble(tmp_path, name, *, marker="z.pkl", rms=(0.5, 0.8, 1.2)):
     return FakePort({"get_names": names}), name
 
 
-def _model_port():
+def _all_tier3_results(tmp_path) -> dict[str, tuple]:
+    """One (report, scene) from every tier-3 view, including its refusals."""
+    _, name = _ensemble(tmp_path, "ens")
+    _, unknown_name = _ensemble(tmp_path, "bare", marker=None)
+    table = {"chain A": 0.2, "chain B": 1.0}
+    counts = dict.fromkeys(table, 10)
     start = [(0.0, float(i), 0.0) for i in range(len(ROWS))]
-    end = [(float(i) * 2.0, float(i), 0.0) for i in range(len(ROWS))]
-    return FakePort(
-        {
-            "iterate_to_list": list(ROWS),
-            "count_states": 2,
-            "get_coords": lambda obj, state=1: start if state == 1 else end,
-        }
-    )
+    end = [(float(i), float(i), 0.0) for i in range(len(ROWS))]
+    atoms = make_atoms(ROWS)
+
+    return {
+        # load_ensemble is a loader, not a view — it reads back to confirm the
+        # objects arrived, so it keeps taking a port and returns a report only.
+        "load_ensemble": (
+            load_ensemble(
+                FakePort({"get_names": [f"ens2_f{i:02d}" for i in (1, 2, 3)]}),
+                (tmp_path / "ens"),
+                "ens2",
+            ),
+            None,
+        ),
+        "latent_traverse_view": latent_traverse_view(name),
+        "latent_traverse_view/refused": latent_traverse_view(unknown_name),
+        "deformation_view": deformation_view(atoms, start, end, "obj", 2),
+        "deformation_view/no_arrows": deformation_view(
+            atoms, start, end, "obj", 2, arrows=False
+        ),
+        "composition_view": composition_view(counts, "obj", table),
+    }
 
 
 def _all_tier3_reports(tmp_path) -> dict[str, str]:
-    """One report from every tier-3 tool, including its refusal paths."""
-    port, name = _ensemble(tmp_path, "ens")
-    unknown_port, unknown_name = _ensemble(tmp_path, "bare", marker=None)
-    comp_port = FakePort({"count_atoms": lambda sel: 10})
-
+    """Just the reports, for the invariants that are claims about the prose."""
     return {
-        "load_ensemble": load_ensemble(
-            FakePort({"get_names": [f"ens2_f{i:02d}" for i in (1, 2, 3)]}),
-            (tmp_path / "ens"),
-            "ens2",
-        ),
-        "latent_traverse_view": latent_traverse_view(port, name),
-        "latent_traverse_view/refused": latent_traverse_view(unknown_port, unknown_name),
-        "deformation_view": deformation_view(_model_port(), "obj"),
-        "deformation_view/no_arrows": deformation_view(_model_port(), "obj", arrows=False),
-        "composition_view": composition_view(comp_port, "obj", {"chain A": 0.2, "chain B": 1.0}),
+        label: (result[0] if isinstance(result, tuple) else result)
+        for label, result in _all_tier3_results(tmp_path).items()
     }
 
 
@@ -110,18 +119,37 @@ def test_the_detector_would_catch_a_breach_if_one_were_introduced(tmp_path):
 
 
 def test_every_rendered_latent_view_names_its_method(tmp_path):
-    port, name = _ensemble(tmp_path, "ens")
-    out = latent_traverse_view(port, name)
-    assert "cryoDRGN" in out
+    _, name = _ensemble(tmp_path, "ens")
+    report, _ = latent_traverse_view(name)
+    assert "cryoDRGN" in report
 
 
 def test_a_latent_view_without_a_method_renders_nothing(tmp_path):
     port, name = _ensemble(tmp_path, "bare", marker=None)
-    out = latent_traverse_view(port, name)
+    d = render(latent_traverse_view(name), port=port)
 
-    assert "REFUSED" in out
-    assert not port.calls("isosurface"), port.call_log
-    assert not port.calls("mset"), port.call_log
+    assert "REFUSED" in d.report
+    # The strongest form of the invariant: the scene the view returned draws
+    # nothing at all. Asserting on the command log could only ever say that
+    # this particular lowering issued nothing.
+    assert not d.scene.draws, d.scene
+    assert not d.port.calls("isosurface"), d.port.call_log
+    assert not d.port.calls("mset"), d.port.call_log
+
+
+def test_no_view_anywhere_emits_a_latent_scatter(tmp_path):
+    """I2 stated positively: Scatter exists so this test can name it.
+
+    Motion is recoverable from a heterogeneity method and populations are not,
+    so the rendering users most want from latent space is the one the evidence
+    says is most often wrong. FakeBackend refuses a Scatter outright, so this
+    holds however a view is later changed.
+    """
+    for label, result in _all_tier3_results(tmp_path).items():
+        if not isinstance(result, tuple) or result[1] is None:
+            continue
+        _, scene = result
+        assert not scene.has(Scatter), f"{label} emitted a latent scatter"
 
 
 # ── I1: provenance is never dropped ──────────────────────────────────────────
@@ -146,15 +174,10 @@ def test_both_occupancy_tools_name_their_sense(tmp_path):
     """The compendium's single most important design decision: a legend that
     quietly omits which sense it means makes the two tools interchangeable,
     and they are not."""
-    from conftest import make_atoms
-
     from wiggles_em.occupancy import occupancy_view
 
-    # occupancy_view has crossed the Scene seam and takes atoms; composition_view
-    # has not yet. The invariant is about what the two reports say, so it holds
-    # across the migration — which is the point of converting a module at a time.
-    sense1, _ = occupancy_view(make_atoms(ROWS), "obj")
-    sense2 = composition_view(FakePort({"count_atoms": lambda sel: 10}), "obj", {"chain A": 0.4})
+    sense1, scene1 = occupancy_view(make_atoms(ROWS), "obj")
+    sense2, scene2 = composition_view({"chain A": 10}, "obj", {"chain A": 0.4})
 
     # Each report must *declare* its own sense, not merely mention the word.
     assert "Occupancy shown is SENSE 1" in sense1
@@ -165,3 +188,7 @@ def test_both_occupancy_tools_name_their_sense(tmp_path):
     # who does not already know there are two.
     assert "NOT compositional occupancy" in sense1
     assert "NOT the per-atom crystallographic occupancy q" in sense2
+
+    # And as values, so the two can be told apart without reading the prose.
+    assert {legend.sense for legend in scene1.legends} == {Sense.ATOM_OCCUPANCY}
+    assert {legend.sense for legend in scene2.legends} == {Sense.PARTICLE_COMPOSITION}

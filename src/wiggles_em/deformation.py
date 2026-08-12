@@ -27,9 +27,17 @@ import math
 import re
 from pathlib import Path
 
-from wiggles_em.atoms import Atom, count_states, fetch_atoms, fetch_state_coords
-from wiggles_em.bfactors import preservation_note, stash_bfactors
-from wiggles_em.port import PortError, PymolPort, call
+from wiggles_em.atoms import Atom
+from wiggles_em.port import PortError
+from wiggles_em.scene import (
+    Arrow,
+    Arrows,
+    ColorByScalar,
+    ScalarField,
+    Scene,
+    Sel,
+    SizeByScalar,
+)
 
 #: PyMOL CGO opcodes. Numbers rather than an import because this package does
 #: not import from PyMOL — it talks to it over a socket, and the plugin at the
@@ -173,8 +181,11 @@ def _uncertainty_colour(value: float, worst: float) -> tuple[float, float, float
 
 
 def deformation_view(
-    port: PymolPort,
+    atoms: list[Atom],
+    start_coords: list[tuple[float, float, float]],
+    end_coords: list[tuple[float, float, float]],
     obj: str,
+    n_states: int,
     *,
     start_state: int = 1,
     end_state: int | None = None,
@@ -183,12 +194,15 @@ def deformation_view(
     max_arrows: int = DEFAULT_MAX_ARROWS,
     as_putty: bool = False,
     uncertainty: dict[tuple[str, str], float] | str | Path | None = None,
-    preserve_bfactors: bool = True,
-) -> str:
+) -> tuple[str, Scene]:
     """Colour a model by how far each residue moved, and draw the motion.
 
     Args:
-        port: A live or fake PyMOL port.
+        atoms: Every atom in ``obj``, already read.
+        start_coords: Coordinates in the state being measured from.
+        end_coords: Coordinates in the state being measured to.
+        n_states: How many states the object has, so the range check below can
+            refuse an out-of-range request without asking a viewer.
         obj: A multi-state object — an ensemble, a morph, or any model whose
             states are conformations.
         start_state: The state to measure from.
@@ -201,7 +215,6 @@ def deformation_view(
         as_putty: Also scale cartoon width by displacement.
         uncertainty: Per-residue half-set disagreement, as a table or a path to
             one. Colours the arrows when present.
-        preserve_bfactors: Stash the original B-factors before overwriting.
 
     Returns:
         A report: the displacement range, the residues that moved most, what
@@ -212,13 +225,12 @@ def deformation_view(
             cannot be paired.
         ValueError: the uncertainty table is unreadable.
     """
-    n_states = count_states(port, obj)
     if n_states < 2:
         return (
             f"deformation_view({obj})\n\n"
             f"  REFUSED: object has {n_states} state; a displacement needs two.\n"
             f"  A deformation is a difference — there is nothing here to difference."
-        )
+        ), Scene()
 
     end_state = n_states if end_state is None else end_state
     for label, state in (("start_state", start_state), ("end_state", end_state)):
@@ -233,33 +245,23 @@ def deformation_view(
     if isinstance(uncertainty, (str, Path)):
         uncertainty = read_uncertainty_table(uncertainty)
 
-    atoms = fetch_atoms(port, obj)
-    start_coords = fetch_state_coords(port, obj, start_state)
-    end_coords = fetch_state_coords(port, obj, end_state)
-
     atom_shift = per_atom_displacement(start_coords, end_coords)
     residue_shift = per_residue_displacement(atoms, atom_shift)
 
     values = sorted(residue_shift.values())
     lo, hi, median = values[0], values[-1], values[len(values) // 2]
 
-    stashed = stash_bfactors(obj, atoms) if preserve_bfactors else 0
-    for (chain, resi), value in residue_shift.items():
-        call(port, "alter", f"({obj}) and chain {chain} and resi {resi}", f"b={value:.4f}")
-    call(port, "spectrum", "b", "blue_white_red", obj, minimum=0, maximum=round(hi, 4))
+    target = Sel.obj(obj)
+    field = ScalarField.per_residue(list(residue_shift.items()))
+    domain = (0.0, round(hi, 4))
+    ops: list = [ColorByScalar(target, field, domain=domain, palette="blue_white_red")]
     if as_putty:
-        call(port, "show", "cartoon", obj)
-        call(port, "set", "cartoon_putty_scale_min", 0.4)
-        call(port, "set", "cartoon_putty_scale_max", 3.0)
-        call(port, "cartoon", "putty", obj)
+        ops.append(SizeByScalar(target, field, domain=domain))
 
     drawn, skipped_short, dropped = 0, 0, 0
     arrow_name = f"{obj}_arrows"
     if arrows:
-        drawn, skipped_short, dropped = _draw_arrows(
-            port,
-            obj,
-            arrow_name,
+        segments, skipped_short, dropped = _arrow_segments(
             atoms,
             start_coords,
             end_coords,
@@ -267,6 +269,9 @@ def deformation_view(
             max_arrows,
             uncertainty,
         )
+        drawn = len(segments)
+        if segments:
+            ops.append(Arrows(tuple(segments), name=arrow_name))
 
     return _report(
         obj=obj,
@@ -278,7 +283,6 @@ def deformation_view(
         hi=hi,
         median=median,
         residue_shift=residue_shift,
-        stashed=stashed,
         as_putty=as_putty,
         arrows=arrows,
         arrow_name=arrow_name,
@@ -287,21 +291,18 @@ def deformation_view(
         dropped=dropped,
         arrow_scale=arrow_scale,
         uncertainty=uncertainty,
-    )
+    ), Scene(ops)
 
 
-def _draw_arrows(
-    port: PymolPort,
-    obj: str,
-    arrow_name: str,
+def _arrow_segments(
     atoms: list[Atom],
     start_coords: list[tuple[float, float, float]],
     end_coords: list[tuple[float, float, float]],
     arrow_scale: float,
     max_arrows: int,
     uncertainty: dict[tuple[str, str], float] | None,
-) -> tuple[int, int, int]:
-    """One arrow per residue, at its CA. Returns (drawn, too_short, dropped)."""
+) -> tuple[list[Arrow], int, int]:
+    """One arrow per residue, at its CA. Returns (arrows, too_short, dropped)."""
     candidates: list[tuple[float, tuple[str, str], tuple, tuple]] = []
     for atom, start, end in zip(atoms, start_coords, end_coords, strict=True):
         if atom.name != "CA":
@@ -321,7 +322,7 @@ def _draw_arrows(
     chosen = long_enough[:max_arrows]
 
     worst = max((uncertainty or {}).values(), default=0.0)
-    cgo: list[float] = []
+    segments: list[Arrow] = []
     for length, residue, start, end in chosen:
         tip = (
             start[0] + (end[0] - start[0]) * arrow_scale,
@@ -332,12 +333,9 @@ def _draw_arrows(
             rgb = _uncertainty_colour(uncertainty.get(residue, worst), worst)
         else:
             rgb = (1.0, 0.55, 0.0)
-        cgo.extend(_arrow_cgo(start, tip, rgb, radius=0.12 + 0.04 * min(length, 5.0)))
+        segments.append(Arrow(start, tip, rgb, radius=0.12 + 0.04 * min(length, 5.0)))
 
-    if cgo:
-        call(port, "delete", arrow_name)
-        call(port, "load_cgo", cgo, arrow_name)
-    return len(chosen), skipped_short, dropped
+    return segments, skipped_short, dropped
 
 
 def _report(**kw) -> str:
@@ -353,7 +351,6 @@ def _report(**kw) -> str:
         f"  Moved most: {biggest_text}",
         "",
         f"  Coloured blue (still) → red ({hi:.2f} Å), scaled to this object.",
-        preservation_note(obj, kw["stashed"]),
     ]
     if kw["as_putty"]:
         lines.append("  Tube width also tracks displacement (putty).")

@@ -25,9 +25,17 @@ import gzip
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from wiggles_em.atoms import fetch_atoms, group_by_residue
-from wiggles_em.bfactors import preservation_note, stash_bfactors
-from wiggles_em.port import PortError, PymolPort, call
+from wiggles_em.atoms import Atom, group_by_residue
+from wiggles_em.port import PortError
+from wiggles_em.scene import (
+    ColorByScalar,
+    ColorFlat,
+    Legend,
+    ScalarField,
+    Scene,
+    SceneOp,
+    Sel,
+)
 
 # wwPDB has spelled this differently across releases; accept what we have seen
 # rather than failing on a file that plainly contains the data.
@@ -105,31 +113,31 @@ def parse_validation_xml(path: str | Path) -> dict[tuple[str, str], float]:
 
 
 def qscore_view(
-    port: PymolPort,
+    atoms: list[Atom],
     obj: str,
     validation_path: str | Path,
-    *,
-    preserve_bfactors: bool = True,
-) -> str:
+) -> tuple[str, Scene]:
     """Colour ``obj`` by per-residue Q-score from a wwPDB validation file.
 
     Residues with no Q-score in the file are coloured ``grey50`` and counted
     separately. They are *not* given a score of zero — absent data is not a bad
     score, and putting it on the same colour scale would assert something the
-    archive never said.
+    archive never said. This is invariant I3: a gap is not an absence.
+
+    Note the scalar field covers only the *scored* residues, and the colouring
+    is scoped to them. Handing the backend a field padded with zeros for the
+    unscored ones would put absent data on the scale by the back door, however
+    the selection was written afterwards.
 
     Args:
-        port: A live or fake PyMOL port.
+        atoms: Every atom in ``obj``, already read.
         obj: Object or selection name.
         validation_path: A wwPDB ``*_validation.xml`` (optionally gzipped).
-        preserve_bfactors: Save B-factors before overwriting, so
-            ``restore_bfactors`` can put them back.
 
     Returns:
-        A report, always ending with the Q-score legend.
+        A report ending with the Q-score legend, and the scene to draw.
     """
     scores = parse_validation_xml(validation_path)
-    atoms = fetch_atoms(port, obj)
     residues = group_by_residue(atoms)
 
     matched = {key: scores[key] for key in residues if key in scores}
@@ -142,24 +150,22 @@ def qscore_view(
             f"probably differs — validation files use author numbering."
         )
 
-    stashed = stash_bfactors(obj, atoms) if preserve_bfactors else 0
-    call(port, "alter", obj, "b=0")
-    for (chain, resi), value in matched.items():
-        call(port, "alter", f"({obj}) and chain {chain} and resi {resi}", f"b={value:.4f}")
-
-    scored_sel = " or ".join(f"(chain {c} and resi {r})" for c, r in matched)
-    call(
-        port,
-        "spectrum",
-        "b",
-        "red_yellow_green",
-        f"({obj}) and ({scored_sel})",
-        minimum=0,
-        maximum=1,
-    )
+    target = Sel.obj(obj)
+    scored = target & Sel.residues(list(matched))
+    ops: list[SceneOp] = [
+        ColorByScalar(
+            scored,
+            ScalarField.per_residue(list(matched.items())),
+            # Fixed 0–1: Q-score is a similarity, not a relative quantity, so
+            # autoscaling would make a uniformly poor map look well resolved.
+            domain=(0.0, 1.0),
+            palette="red_yellow_green",
+        )
+    ]
     if missing:
-        missing_sel = " or ".join(f"(chain {c} and resi {r})" for c, r in missing)
-        call(port, "color", NO_DATA_COLOUR, f"({obj}) and ({missing_sel})")
+        ops.append(ColorFlat(target & Sel.residues(missing), NO_DATA_COLOUR))
+    ops.append(Legend(QSCORE_LEGEND))
+    scene = Scene(ops)
 
     values = sorted(matched.values())
     mean = sum(values) / len(values)
@@ -192,7 +198,5 @@ def qscore_view(
             "  absent. They clamp to the bottom of the colour scale; check whether",
             "  the model is placed correctly there.",
         ]
-    if preserve_bfactors:
-        lines.append(preservation_note(obj, stashed))
     lines += ["", QSCORE_LEGEND]
-    return "\n".join(lines)
+    return "\n".join(lines), scene

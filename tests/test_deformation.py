@@ -10,6 +10,7 @@ nothing in the picture distinguishes those.
 from __future__ import annotations
 
 import pytest
+from conftest import draw, make_atoms
 
 from wiggles_em.deformation import (
     deformation_view,
@@ -17,7 +18,8 @@ from wiggles_em.deformation import (
     per_residue_displacement,
     read_uncertainty_table,
 )
-from wiggles_em.port import FakePort, PortError
+from wiggles_em.port import PortError
+from wiggles_em.scene import Arrows, ColorByScalar
 
 # chain, resi, resn, name, alt, q, b
 ROWS = [
@@ -35,15 +37,10 @@ def _coords(shifts):
     return start, end
 
 
-def _port(shifts, *, n_states=2):
+def _view(shifts, *, n_states=2, **kwargs):
+    """Run deformation_view over a shift pattern and render what it returned."""
     start, end = _coords(shifts)
-    return FakePort(
-        {
-            "iterate_to_list": list(ROWS),
-            "count_states": n_states,
-            "get_coords": lambda obj, state=1: start if state == 1 else end,
-        }
-    )
+    return draw(deformation_view, ROWS, start, end, "obj", n_states, **kwargs)
 
 
 # ── the arithmetic ───────────────────────────────────────────────────────────
@@ -67,19 +64,17 @@ def test_the_refusal_points_at_the_tool_that_needs_no_pairing():
 
 
 def test_per_residue_is_the_mean_over_its_atoms():
-    atoms = _port([0.0] * 4).query("iterate_to_list", "x", "y")
-    from wiggles_em.atoms import fetch_atoms
+    atoms = list(ROWS)
 
-    got = per_residue_displacement(fetch_atoms(_port([0.0] * 4), "obj"), [2.0, 4.0, 1.0, 9.0])
+    got = per_residue_displacement(make_atoms(ROWS), [2.0, 4.0, 1.0, 9.0])
     assert got[("A", "1")] == pytest.approx(3.0)
     assert got[("A", "2")] == pytest.approx(1.0)
     assert atoms  # the fixture really did hand back rows
 
 
 def test_diverged_lengths_are_refused():
-    from wiggles_em.atoms import fetch_atoms
 
-    atoms = fetch_atoms(_port([0.0] * 4), "obj")
+    atoms = make_atoms(ROWS)
     with pytest.raises(PortError, match="orders have diverged"):
         per_residue_displacement(atoms, [1.0])
 
@@ -88,50 +83,64 @@ def test_diverged_lengths_are_refused():
 
 
 def test_a_single_state_object_is_refused():
-    out = deformation_view(_port([0.0] * 4, n_states=1), "obj")
+    d = _view([0.0] * 4, n_states=1)
+    out = d.report
     assert "REFUSED" in out
     assert "nothing here to difference" in out
 
 
 def test_an_out_of_range_state_is_refused():
     with pytest.raises(PortError, match=r"outside the object's 1\.\.2 states"):
-        deformation_view(_port([1.0] * 4), "obj", end_state=7)
+        _view([1.0] * 4, end_state=7)
 
 
 def test_a_state_against_itself_is_refused():
     with pytest.raises(PortError, match="zero everywhere"):
-        deformation_view(_port([1.0] * 4), "obj", start_state=1, end_state=1)
+        _view([1.0] * 4, start_state=1, end_state=1)
 
 
 # ── the view ─────────────────────────────────────────────────────────────────
 
 
 def test_displacement_reaches_the_bfactor_column():
-    port = _port([0.0, 0.0, 3.0, 6.0])
-    deformation_view(port, "obj", arrows=False)
+    d = _view([0.0, 0.0, 3.0, 6.0], arrows=False)
 
-    altered = {args[0]: args[1] for args, _ in port.calls("alter")}
-    assert "b=3.0000" in altered["(obj) and chain A and resi 2"]
-    assert "b=6.0000" in altered["(obj) and chain A and resi 3"]
+    # On the scene: the values are the displacement, keyed by residue.
+    (op,) = d.scene.of(ColorByScalar)
+    by_residue = dict(zip(op.field.keys, op.field.values, strict=True))
+    assert by_residue[("A", "2")] == pytest.approx(3.0)
+    assert by_residue[("A", "3")] == pytest.approx(6.0)
+
+    # And in the lowering: one dictionary push, not one alter per residue.
+    pushed = next(c for c in d.port.commands if "stored.wiggles_scalar" in c)
+    assert "3.0" in pushed and "6.0" in pushed
 
 
 def test_the_report_names_the_biggest_movers():
-    out = deformation_view(_port([0.0, 0.0, 3.0, 6.0]), "obj", arrows=False)
+    d = _view([0.0, 0.0, 3.0, 6.0], arrows=False)
+    out = d.report
     assert "A/3 6.00Å" in out
     assert "Moved most" in out
 
 
 def test_bfactors_are_stashed_before_being_overwritten():
-    out = deformation_view(_port([1.0] * 4), "obj", arrows=False)
-    assert "restore_bfactors" in out
+    d = _view([1.0] * 4, arrows=False)
+    # The caveat is the backend's, not the view's: protean re-sends a display
+    # copy and has nothing to restore, so it must not inherit the advice.
+    assert "restore_bfactors" in d.notes
+    assert "B-factor" not in d.report
 
 
 def test_arrows_are_drawn_as_cgo():
-    port = _port([0.0, 0.0, 3.0, 6.0])
-    deformation_view(port, "obj")
+    d = _view([0.0, 0.0, 3.0, 6.0])
 
-    calls = port.calls("load_cgo")
-    assert len(calls) == 1, port.call_log
+    # The scene carries geometry, not opcodes — Mol* has no CGO.
+    (op,) = d.scene.of(Arrows)
+    assert op.name == "obj_arrows"
+    assert op.segments and all(a.start != a.end for a in op.segments)
+
+    calls = d.port.calls("load_cgo")
+    assert len(calls) == 1, d.port.call_log
     cgo, name = calls[0][0]
     assert name == "obj_arrows"
     assert cgo[0] == 9.0, "a cylinder opcode starts the shaft"
@@ -140,14 +149,12 @@ def test_arrows_are_drawn_as_cgo():
 
 def test_only_ca_atoms_get_arrows():
     """One arrow per residue, at its CA — an arrow per atom is a thicket."""
-    port = _port([5.0, 5.0, 5.0, 5.0])
-    out = deformation_view(port, "obj")
+    out = _view([5.0, 5.0, 5.0, 5.0]).report
     assert "3 drawn" in out, out
 
 
 def test_motions_below_the_noise_floor_get_no_arrow():
-    port = _port([0.0, 0.01, 0.01, 5.0])
-    out = deformation_view(port, "obj")
+    out = _view([0.0, 0.01, 0.01, 5.0]).report
 
     assert "1 drawn" in out
     assert "moved less than" in out
@@ -155,21 +162,22 @@ def test_motions_below_the_noise_floor_get_no_arrow():
 
 
 def test_the_arrow_ceiling_is_reported_never_silent():
-    port = _port([0.0, 5.0, 6.0, 7.0])
-    out = deformation_view(port, "obj", max_arrows=1)
+    out = _view([0.0, 5.0, 6.0, 7.0], max_arrows=1).report
 
     assert "2 further residue(s)" in out
     assert "truncation of the largest movers" in out
 
 
 def test_exaggeration_is_labelled():
-    out = deformation_view(_port([0.0, 0.0, 3.0, 6.0]), "obj", arrow_scale=3.0)
+    d = _view([0.0, 0.0, 3.0, 6.0], arrow_scale=3.0)
+    out = d.report
     assert "EXAGGERATED 3x" in out
     assert "no longer" in out
 
 
 def test_unexaggerated_output_says_nothing_about_exaggeration():
-    out = deformation_view(_port([0.0, 0.0, 3.0, 6.0]), "obj")
+    d = _view([0.0, 0.0, 3.0, 6.0])
+    out = d.report
     assert "EXAGGERATED" not in out
 
 
@@ -178,7 +186,8 @@ def test_unexaggerated_output_says_nothing_about_exaggeration():
 
 def test_missing_uncertainty_is_stated_loudly():
     """A uniformly orange field is not evidence of uniform reliability."""
-    out = deformation_view(_port([0.0, 0.0, 3.0, 6.0]), "obj")
+    d = _view([0.0, 0.0, 3.0, 6.0])
+    out = d.report
 
     assert "NO UNCERTAINTY SUPPLIED" in out
     assert "do not have identical confidence" in out
@@ -188,7 +197,7 @@ def test_an_uncertainty_table_is_read_and_reported(tmp_path):
     path = tmp_path / "unc.txt"
     path.write_text("# chain resi value\nA 2 0.1\nA 3 0.9\n")
 
-    out = deformation_view(_port([0.0, 0.0, 3.0, 6.0]), "obj", uncertainty=str(path))
+    out = _view([0.0, 0.0, 3.0, 6.0], uncertainty=str(path)).report
     assert "coloured by half-set uncertainty" in out
     assert "2 residues" in out
     assert "NO UNCERTAINTY SUPPLIED" not in out
@@ -200,14 +209,17 @@ def test_uncertainty_changes_the_arrow_colours(tmp_path):
     path = tmp_path / "unc.txt"
     path.write_text("A 2 0.0\nA 3 1.0\n")
 
-    plain = _port([0.0, 0.0, 3.0, 6.0])
-    deformation_view(plain, "obj")
-    coloured = _port([0.0, 0.0, 3.0, 6.0])
-    deformation_view(coloured, "obj", uncertainty=str(path))
+    plain = _view([0.0, 0.0, 3.0, 6.0])
+    coloured = _view([0.0, 0.0, 3.0, 6.0], uncertainty=str(path))
 
-    a = plain.calls("load_cgo")[0][0][0]
-    b = coloured.calls("load_cgo")[0][0][0]
+    # On the scene the claim is direct: same geometry, different colours.
+    pa = plain.scene.of(Arrows)[0].segments
+    ca = coloured.scene.of(Arrows)[0].segments
+    assert [(a.start, a.end) for a in pa] == [(a.start, a.end) for a in ca]
+    assert [a.colour for a in pa] != [a.colour for a in ca]
 
+    a = plain.port.calls("load_cgo")[0][0][0]
+    b = coloured.port.calls("load_cgo")[0][0][0]
     assert len(a) == len(b), "same arrows, so the same CGO length"
     assert a != b, "the uncertainty table should have changed the colours"
     # The shaft endpoints are geometry and must be untouched; CYLINDER lays out
@@ -232,7 +244,8 @@ def test_an_unparseable_table_says_what_it_wanted(tmp_path):
 
 
 def test_the_report_forbids_reading_a_population_off_an_arrow():
-    out = deformation_view(_port([0.0, 0.0, 3.0, 6.0]), "obj")
+    d = _view([0.0, 0.0, 3.0, 6.0])
+    out = d.report
 
     assert "MOTION IS THE WELL-SUPPORTED CLAIM" in out
     assert "Do NOT read them as: this fraction of particles moved" in out

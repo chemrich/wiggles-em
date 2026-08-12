@@ -13,8 +13,10 @@ breakpoint in Å converts to sigma by subtracting 4 — 2 Å is -2 sigma, 6 Å i
 from __future__ import annotations
 
 import pytest
+from conftest import render
 from test_mapinfo import write_map
 
+from wiggles_em.backends.pymol import normalisation_state
 from wiggles_em.density import DEFAULT_SIGMA
 from wiggles_em.localres import (
     DEFAULT_PALETTE,
@@ -25,6 +27,7 @@ from wiggles_em.mapinfo import read_map_header
 from wiggles_em.maps import forget_map, load_map
 from wiggles_em.port import FakePort, PortError
 from wiggles_em.provenance import Provenance
+from wiggles_em.scene import ColorSurfaceByMap, Isosurface
 
 #: A resolution field runs 2–6 Å. These are resolutions, not densities, which
 #: is the whole reason the conversion needs this map's own statistics.
@@ -59,6 +62,19 @@ def session(tmp_path):
         return port, read_map_header(main_path), read_map_header(res_path)
 
     return _make
+
+
+def localres(port, *args, **kwargs):
+    """Run local_resolution_view the way a host would.
+
+    The host reads the viewer's normalisation setting and hands the answer to
+    the view for its report; the backend reads the same setting for itself when
+    it converts. Both go through normalisation_state, so they cannot disagree
+    about what PyMOL said — only about what to do with it, which is the point
+    of the split.
+    """
+    kwargs.setdefault("normalised", normalisation_state(port))
+    return render(local_resolution_view(*args, **kwargs), port=port)
 
 
 # ── the grid check ──────────────────────────────────────────────────────────
@@ -104,27 +120,30 @@ def test_undefined_voxel_size_is_a_difference_not_a_crash(tmp_path):
 
 def test_mismatched_grids_are_refused_and_nothing_is_drawn(session):
     port, _, _ = session(res_kw={"origin": (0.0, 0.0, 12.0)})
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "REFUSED" in out
     assert "origin along Z differs" in out
-    assert not port.calls("isosurface"), port.call_log
-    assert not port.calls("ramp_new"), port.call_log
+    assert not d.port.calls("isosurface"), d.port.call_log
+    assert not d.port.calls("ramp_new"), d.port.call_log
 
 
 def test_the_refusal_explains_why_a_wrong_grid_is_dangerous(session):
     """A mismatch does not render visibly broken — that is the point."""
     port, _, _ = session(res_kw={"voxel": 1.2})
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
     assert "smooth, plausible, and wrong" in out
 
 
 def test_the_same_object_twice_is_refused(session):
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "main")
+    d = localres(port, "main", "main")
+    out = d.report
     assert "REFUSED" in out
     assert "Colouring a map by itself" in out
-    assert not port.calls("isosurface"), port.call_log
+    assert not d.port.calls("isosurface"), d.port.call_log
 
 
 # ── the conversion, which is the other half ─────────────────────────────────
@@ -132,7 +151,8 @@ def test_the_same_object_twice_is_refused(session):
 
 def test_default_breakpoints_span_the_headers_range(session):
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
     assert "2–6 Å" in out or "2-6 Å" in out
 
 
@@ -140,19 +160,26 @@ def test_breakpoints_reach_pymol_in_the_resolution_maps_sigma(session):
     """The central claim: PyMOL normalised the volume, so ramp_new needs sigma
     against *this* map's mean and rms, not Ångström and not the main map's."""
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
 
-    args, _ = port.calls("ramp_new")[0]
-    assert args[0] == "locres_ramp"
+    # On the scene the breakpoints are still Angstrom, the unit they were
+    # measured in — converting is the backend's job because it is PyMOL's
+    # normalisation that makes it necessary.
+    (op,) = d.scene.of(ColorSurfaceByMap)
+    assert op.volume == "locres"
+    assert op.breakpoints == pytest.approx([2.0, 3.0, 4.0, 5.0, 6.0])
+
+    args, _ = d.port.calls("ramp_new")[0]
     assert args[1] == "locres"
-    assert args[2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0]), port.call_log
+    assert args[2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0]), d.port.call_log
     assert args[3] == list(DEFAULT_PALETTE)
 
 
 def test_both_units_appear_in_the_report(session):
     """Stating one unit without the other is how the two get confused."""
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "Resolution ramp" in out
     rows = [line for line in out.splitlines() if "->" in line and "Å" in line]
@@ -169,50 +196,55 @@ def test_a_pymol_that_will_not_answer_the_setting_query_is_handled(session):
         raise PortError("unknown action 'get'")
 
     port, _, _ = session(get=_refuse)
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "would not report normalize_ccp4_maps" in out
-    assert port.calls("ramp_new")[0][0][2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0])
+    assert d.port.calls("ramp_new")[0][0][2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0])
 
 
 def test_normalisation_off_sends_angstrom_unconverted(session):
     """With normalize_ccp4_maps off the stored values are still resolutions,
     so converting would be the error."""
     port, _, _ = session(get="off")
-    local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
 
-    args, _ = port.calls("ramp_new")[0]
-    assert args[2] == pytest.approx([2.0, 3.0, 4.0, 5.0, 6.0]), port.call_log
+    args, _ = d.port.calls("ramp_new")[0]
+    assert args[2] == pytest.approx([2.0, 3.0, 4.0, 5.0, 6.0]), d.port.call_log
 
 
 def test_unknown_normalisation_assumes_the_pymol_default_and_says_so(session):
     port, _, _ = session()  # FakePort answers "OK", which is not a setting
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "would not report normalize_ccp4_maps" in out
-    assert port.calls("ramp_new")[0][0][2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0])
+    assert d.port.calls("ramp_new")[0][0][2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0])
 
 
 def test_the_setting_is_read_now_not_at_load_time(session):
     """A limitation worth stating rather than papering over."""
     port, _, _ = session(get="on")
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
     assert "read now, not as it was at load time" in out
 
 
 def test_zero_rms_refuses_rather_than_dividing(session):
     port, _, _ = session(res_kw={"rms": 0.0})
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "REFUSED" in out
     assert "sigma is undefined" in out
     assert "normalize_ccp4_maps, off" in out
-    assert not port.calls("ramp_new"), port.call_log
+    assert not d.port.calls("ramp_new"), d.port.call_log
 
 
 def test_a_map_with_no_positive_values_is_not_a_resolution_field(session):
     port, _, _ = session(res_kw={"dmin": -1.0, "dmax": 0.0, "dmean": -0.5})
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "REFUSED" in out
     assert "does not look like a resolution field" in out
@@ -222,10 +254,11 @@ def test_zero_padding_outside_the_mask_does_not_anchor_the_ramp(session):
     """Estimators write 0 outside the mask. Taking that as the best-resolved
     end would compress every real value into the top of the scale."""
     port, _, _ = session(res_kw={"dmin": 0.0})
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "outside-the-mask padding" in out
-    assert port.calls("ramp_new")[0][0][2][0] > -4.0, port.call_log
+    assert d.port.calls("ramp_new")[0][0][2][0] > -4.0, d.port.call_log
 
 
 # ── breakpoints and palette given explicitly ────────────────────────────────
@@ -233,32 +266,32 @@ def test_zero_padding_outside_the_mask_does_not_anchor_the_ramp(session):
 
 def test_explicit_breakpoints_are_used(session):
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres", breaks=[3.0, 5.0], palette=["blue", "red"])
-    assert port.calls("ramp_new")[0][0][2] == pytest.approx([-1.0, 1.0])
+    d = localres(port, "main", "locres", breaks=[3.0, 5.0], palette=["blue", "red"])
+    assert d.port.calls("ramp_new")[0][0][2] == pytest.approx([-1.0, 1.0])
 
 
 def test_descending_breakpoints_are_rejected(session):
     port, _, _ = session()
     with pytest.raises(ValueError, match="must ascend"):
-        local_resolution_view(port, "main", "locres", breaks=[5.0, 3.0], palette=["blue", "red"])
+        localres(port, "main", "locres", breaks=[5.0, 3.0], palette=["blue", "red"])
 
 
 def test_non_positive_breakpoints_are_rejected(session):
     port, _, _ = session()
     with pytest.raises(ValueError, match="must be positive"):
-        local_resolution_view(port, "main", "locres", breaks=[0.0, 3.0], palette=["blue", "red"])
+        localres(port, "main", "locres", breaks=[0.0, 3.0], palette=["blue", "red"])
 
 
 def test_a_single_breakpoint_is_rejected(session):
     port, _, _ = session()
     with pytest.raises(ValueError, match="at least two breakpoints"):
-        local_resolution_view(port, "main", "locres", breaks=[3.0], palette=["blue"])
+        localres(port, "main", "locres", breaks=[3.0], palette=["blue"])
 
 
 def test_palette_must_match_the_breakpoints(session):
     port, _, _ = session()
     with pytest.raises(ValueError, match="one to one"):
-        local_resolution_view(port, "main", "locres", breaks=[2.0, 4.0, 6.0])
+        localres(port, "main", "locres", breaks=[2.0, 4.0, 6.0])
 
 
 def test_explicit_breakpoints_raise_rather_than_refusing(session):
@@ -266,7 +299,7 @@ def test_explicit_breakpoints_raise_rather_than_refusing(session):
     the caller's and gets an exception."""
     port, _, _ = session(res_kw={"dmax": 0.0, "dmin": -1.0, "dmean": -0.5})
     with pytest.raises(ValueError, match="must be positive"):
-        local_resolution_view(port, "main", "locres", breaks=[-1.0, 2.0], palette=["blue", "red"])
+        localres(port, "main", "locres", breaks=[-1.0, 2.0], palette=["blue", "red"])
 
 
 # ── the surface itself ──────────────────────────────────────────────────────
@@ -274,66 +307,82 @@ def test_explicit_breakpoints_raise_rather_than_refusing(session):
 
 def test_the_surface_is_contoured_in_the_main_maps_sigma(session):
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres", level=2.0)
+    d = localres(port, "main", "locres", level=2.0)
 
-    args, _ = port.calls("isosurface")[0]
-    assert args == ("main_localres", "main", 2.0), port.call_log
+    args, _ = d.port.calls("isosurface")[0]
+    assert args == ("main_localres", "main", 2.0), d.port.call_log
 
 
 def test_an_absolute_contour_is_converted_against_the_main_map(session):
     """main.mrc has dmean=0, rms=0.5, so 1.0 absolute is 2 sigma — and the
     resolution map's statistics must not be the ones used."""
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres", level=1.0, units="absolute")
-    assert port.calls("isosurface")[0][0][2] == pytest.approx(2.0), port.call_log
+    d = localres(port, "main", "locres", level=1.0, units="absolute")
+    assert d.port.calls("isosurface")[0][0][2] == pytest.approx(2.0), d.port.call_log
 
 
 def test_default_contour_is_labelled_generic(session):
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
-    assert port.calls("isosurface")[0][0][2] == DEFAULT_SIGMA
+    assert d.port.calls("isosurface")[0][0][2] == DEFAULT_SIGMA
     assert "not a recommendation for this map" in out
 
 
 def test_bad_units_are_rejected(session):
     port, _, _ = session()
     with pytest.raises(ValueError, match="must be 'sigma' or 'absolute'"):
-        local_resolution_view(port, "main", "locres", level=1.0, units="angstrom")
+        localres(port, "main", "locres", level=1.0, units="angstrom")
 
 
 def test_the_ramp_is_attached_to_the_surface(session):
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres")
-    assert port.called("set", "surface_color", "locres_ramp", "main_localres"), port.call_log
+    d = localres(port, "main", "locres")
+    # The ramp is a PyMOL object with a PyMOL name; the scene only says
+    # "colour this surface by that volume". Mol* has no ramp at all.
+    (op,) = d.scene.of(ColorSurfaceByMap)
+    assert (op.surface, op.volume) == ("main_localres", "locres")
+    assert d.port.called(
+        "set", "surface_color", "main_localres_ramp", "main_localres"
+    ), d.port.call_log
+    assert "deleting it un-colours it" in d.notes
 
 
 def test_a_selection_carves_the_surface(session):
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres", selection="chain A", carve=3.5)
+    d = localres(port, "main", "locres", selection="chain A", carve=3.5)
 
-    args, kwargs = port.calls("isosurface")[0]
-    assert args[3] == "chain A"
+    (op,) = d.scene.of(Isosurface)
+    assert op.carve_radius == 3.5
+    assert op.carve_around is not None and op.carve_around.dialects == {"pymol"}
+
+    args, kwargs = d.port.calls("isosurface")[0]
+    assert args[3] == "(chain A)"
     assert kwargs["carve"] == 3.5
 
 
 def test_names_can_be_overridden(session):
     port, _, _ = session()
-    local_resolution_view(port, "main", "locres", name="surf", ramp_name="rr")
+    d = localres(port, "main", "locres", name="surf")
 
-    assert port.calls("isosurface")[0][0][0] == "surf"
-    assert port.calls("ramp_new")[0][0][0] == "rr"
-    assert port.called("set", "surface_color", "rr", "surf")
+    assert d.port.calls("isosurface")[0][0][0] == "surf"
+    # The ramp name follows the surface. It was a parameter when the view
+    # spoke PyMOL; now it is the backend's business, because no other viewer
+    # has a ramp object to name.
+    assert d.port.calls("ramp_new")[0][0][0] == "surf_ramp"
+    assert d.port.called("set", "surface_color", "surf_ramp", "surf")
 
 
 def test_validate_only_creates_nothing(session):
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres", validate_only=True)
+    d = localres(port, "main", "locres", validate_only=True)
+    out = d.report
 
     assert "Grid check passed" in out
     assert "nothing created" in out
-    assert not port.calls("isosurface"), port.call_log
-    assert not port.calls("ramp_new"), port.call_log
+    assert not d.port.calls("isosurface"), d.port.call_log
+    assert not d.port.calls("ramp_new"), d.port.call_log
 
 
 # ── what the report has to say ──────────────────────────────────────────────
@@ -343,7 +392,8 @@ def test_both_maps_get_a_provenance_banner(session):
     """I1: this renders a volume and colours it by a second one, so both
     origins have to be stated."""
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "Provenance: MEASURED" in out
     assert "Provenance: UNKNOWN" in out
@@ -352,7 +402,8 @@ def test_both_maps_get_a_provenance_banner(session):
 def test_the_colour_direction_is_stated_in_words(session):
     """Low Å is good, so the ramp runs opposite to the usual reading."""
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "BEST-resolved" in out
     assert "Low numbers are good" in out
@@ -360,13 +411,15 @@ def test_the_colour_direction_is_stated_in_words(session):
 
 def test_the_two_sigma_scales_are_distinguished(session):
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
     assert "not interchangeable" in out
 
 
 def test_the_legend_says_the_field_is_an_estimate(session):
     port, _, _ = session()
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
     assert "ESTIMATE, not a measurement" in out
 
 
@@ -377,7 +430,8 @@ def test_geometry_warnings_from_both_maps_are_labelled(session):
         main_kw={"cella": (256.0, 256.0, 384.0)},
         res_kw={"cella": (256.0, 256.0, 384.0)},
     )
-    out = local_resolution_view(port, "main", "locres")
+    d = localres(port, "main", "locres")
+    out = d.report
 
     assert "Geometry warnings, main" in out
     assert "Geometry warnings, locres" in out
@@ -390,16 +444,16 @@ def test_geometry_warnings_from_both_maps_are_labelled(session):
 def test_an_unloaded_density_map_is_refused(session):
     port, _, _ = session()
     with pytest.raises(PortError, match="the density map"):
-        local_resolution_view(port, "never_loaded", "locres")
+        localres(port, "never_loaded", "locres")
 
 
 def test_an_unloaded_resolution_map_is_refused(session):
     port, _, _ = session()
     with pytest.raises(PortError, match="the resolution map"):
-        local_resolution_view(port, "main", "never_loaded")
+        localres(port, "main", "never_loaded")
 
 
 def test_the_refusal_explains_what_the_header_is_needed_for(session):
     port, _, _ = session()
     with pytest.raises(PortError, match="share a grid"):
-        local_resolution_view(port, "main", "never_loaded")
+        localres(port, "main", "never_loaded")

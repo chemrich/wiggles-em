@@ -48,8 +48,9 @@ from itertools import pairwise
 from wiggles_em.density import DEFAULT_CARVE, DEFAULT_SIGMA, to_absolute, to_sigma
 from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import LoadedMap, loaded_map
-from wiggles_em.port import PortError, PymolPort, call
+from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
+from wiggles_em.scene import ColorSurfaceByMap, Isosurface, Legend, Rep, Scene, Sel, Unit
 
 #: Relative tolerance for calling two voxel spacings the same, for the same
 #: reason :data:`wiggles_em.mapinfo.ISOTROPY_RTOL` exists: EMD-30913 reports
@@ -187,33 +188,6 @@ def _breakpoints(header: MapHeader, breaks: list[float] | None) -> tuple[list[fl
     return [best + step * i for i in range(n)], note
 
 
-def normalisation_state(port: PymolPort) -> bool | None:
-    """Is ``normalize_ccp4_maps`` on? None when PyMOL will not say.
-
-    Read now, not at load time, which is the honest limitation: a session that
-    had it off when the map was loaded and on now would report the wrong thing.
-
-    **What a real PyMOL returns, checked rather than assumed:** ``'1'`` — the
-    *string* ``'1'``, not ``'on'`` and not the integer ``1`` (open-source PyMOL,
-    2026-08-09, via ``tools/livefire.py``). The parse stays tolerant of the
-    other spellings because that answer is one build's, and an older plugin may
-    not expose ``get`` at all, which is unknown rather than an error.
-
-    Public because ``tools/livefire.py`` prints the raw answer next to this
-    verdict: what a real PyMOL returns here is the one thing in this module
-    that ``FakePort`` cannot establish.
-    """
-    try:
-        raw = port.query("get", "normalize_ccp4_maps")
-    except PortError:
-        return None
-    text = str(raw).strip().lower()
-    if text in ("on", "1", "1.0", "true", "yes"):
-        return True
-    if text in ("off", "0", "0.0", "false", "no"):
-        return False
-    return None
-
 
 def _require_loaded(obj: str, role: str) -> LoadedMap:
     record = loaded_map(obj)
@@ -229,7 +203,6 @@ def _require_loaded(obj: str, role: str) -> LoadedMap:
 
 
 def local_resolution_view(
-    port: PymolPort,
     map_obj: str,
     res_obj: str,
     *,
@@ -240,9 +213,9 @@ def local_resolution_view(
     selection: str | None = None,
     carve: float = DEFAULT_CARVE,
     name: str | None = None,
-    ramp_name: str | None = None,
+    normalised: bool | None = None,
     validate_only: bool = False,
-) -> str:
+) -> tuple[str, Scene]:
     """Draw ``map_obj``'s isosurface coloured by the resolution field in ``res_obj``.
 
     Both volumes must have been loaded through :func:`wiggles_em.maps.load_map`:
@@ -250,7 +223,6 @@ def local_resolution_view(
     possible, and without them this tool would be guessing at both.
 
     Args:
-        port: A live or fake PyMOL port.
         map_obj: The volume to draw. Its contour level is in *its* sigma.
         res_obj: A local-resolution volume, values in Ångström.
         level: Contour level for the isosurface. ``None`` uses
@@ -264,8 +236,10 @@ def local_resolution_view(
         selection: Restrict the surface to a carve around this selection.
         carve: Carve radius in Å. Ignored without ``selection``.
         name: Surface object name. Defaults to ``<map_obj>_localres``.
-        ramp_name: Ramp object name. Defaults to ``<res_obj>_ramp``. The ramp
-            must outlive the call — deleting it un-colours the surface.
+        normalised: Whether the viewer normalised the volumes on load. PyMOL
+            does by default, which is what puts the breakpoints in sigma; pass
+            what the backend reports. ``None`` means it would not say, and the
+            report says so rather than assuming.
         validate_only: Run the grid check and report, creating nothing.
 
     Returns:
@@ -290,7 +264,7 @@ def local_resolution_view(
                 "  not resolution, and the picture is indistinguishable from a real",
                 "  one. Load the local-resolution volume as a separate object.",
             ]
-        )
+        ), Scene()
 
     main = _require_loaded(map_obj, "density map")
     res = _require_loaded(res_obj, "resolution map")
@@ -315,7 +289,7 @@ def local_resolution_view(
                 "  or one has been resampled, regenerate the resolution volume on this",
                 "  map's grid. `map_info` on both files shows the full geometry.",
             ]
-        )
+        ), Scene()
 
     try:
         points, breaks_note = _breakpoints(res.header, breaks)
@@ -331,7 +305,7 @@ def local_resolution_view(
                 "  Pass breaks=[...] explicitly if the header statistics are stale but",
                 "  the data are good.",
             ]
-        )
+        ), Scene()
 
     colours = list(palette) if palette is not None else list(DEFAULT_PALETTE)
     if len(colours) != len(points):
@@ -340,7 +314,6 @@ def local_resolution_view(
             f"them one to one, so they must be the same length"
         )
 
-    normalised = normalisation_state(port)
     if normalised is False:
         # Values are stored as written, so the breakpoints are already right.
         sigmas = list(points)
@@ -359,7 +332,7 @@ def local_resolution_view(
                     "  usable rms. Reload with `set normalize_ccp4_maps, off` to keep the",
                     "  Ångström values, or repair the header statistics.",
                 ]
-            )
+            ), Scene()
 
     # The main map's contour level, in the main map's sigma — a different scale
     # from the breakpoints above, which are in the resolution map's sigma.
@@ -373,7 +346,6 @@ def local_resolution_view(
     contour_absolute = to_absolute(main.header, contour) if main.header.rms else None
 
     surface = name or f"{map_obj}_localres"
-    ramp = ramp_name or f"{res_obj}_ramp"
 
     lines = [
         f"local_resolution_view({map_obj} by {res_obj})",
@@ -389,21 +361,32 @@ def local_resolution_view(
         lines += ["", _ramp_table(points, sigmas, colours, normalised)]
         lines += ["", provenance_banner(map_obj), "", provenance_banner(res_obj)]
         lines += ["", LOCAL_RESOLUTION_LEGEND]
-        return "\n".join(lines)
+        return "\n".join(lines), Scene([Legend(LOCAL_RESOLUTION_LEGEND)])
 
-    if selection:
-        call(port, "isosurface", surface, map_obj, contour, selection, carve=carve)
-    else:
-        call(port, "isosurface", surface, map_obj, contour)
-    call(port, "ramp_new", ramp, res_obj, sigmas, colours)
-    call(port, "set", "surface_color", ramp, surface)
+    # Breakpoints go out in Angstrom, the unit they were measured in. The
+    # backend converts against res_obj's OWN header -- a different sigma scale
+    # from the density map's contour level, which is the half of the sigma trap
+    # that is easiest to miss. `sigmas` above exists only so the report can
+    # show the reader both.
+    scene = Scene([
+        Isosurface(
+            surface,
+            map_obj,
+            level=contour,
+            unit=Unit.SIGMA,
+            style=Rep.SURFACE,
+            carve_around=Sel.raw(selection) if selection else None,
+            carve_radius=carve if selection else None,
+        ),
+        ColorSurfaceByMap(surface, res_obj, tuple(points), tuple(colours)),
+        Legend(LOCAL_RESOLUTION_LEGEND),
+    ])
 
     absolute_text = f"{contour_absolute:.6g}" if contour_absolute is not None else "unknown (rms=0)"
     lines += [
         f"  Surface `{surface}` at {contour:.3g} sigma  =  {absolute_text} absolute"
         + (f", carved {carve:g} Å around {selection}." if selection else "."),
-        f"  Coloured by ramp `{ramp}` over {res_obj}. Deleting the ramp un-colours",
-        "  the surface — it is not baked in.",
+        f"  Coloured by the resolution field in {res_obj}.",
         "",
         _ramp_table(points, sigmas, colours, normalised),
         "",
@@ -434,7 +417,7 @@ def local_resolution_view(
             lines += [f"    ! {w}" for w in warnings]
 
     lines += ["", LOCAL_RESOLUTION_LEGEND]
-    return "\n".join(lines)
+    return "\n".join(lines), scene
 
 
 def _voxel_text(header: MapHeader) -> str:

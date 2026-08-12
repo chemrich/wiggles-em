@@ -78,21 +78,31 @@ class Drawn:
         )
 
 
-def draw(view, rows, *args, preserve_bfactors: bool = True, **kwargs) -> Drawn:
-    """Run a view over ``rows`` and render its scene through both backends.
+def render(result, rows=(), *, port=None, preserve_bfactors: bool = True) -> Drawn:
+    """Render an already-computed ``(report, scene)`` through both backends.
 
     Rendering through *both* is deliberate. ``FakeBackend`` is strict about ops
     no viewer may honour, so a view that emitted a forbidden op fails here even
     if the PyMOL lowering happened to swallow it.
     """
-    atoms = make_atoms(rows)
-    report, scene = view(atoms, *args, **kwargs)
+    report, scene = result
 
     fake = FakeBackend()
     fake.render(scene)
 
-    port = FakePort(iterate_response(rows))
+    if port is None:
+        port = FakePort(iterate_response(rows))
     pymol = PymolBackend(port, preserve_bfactors=preserve_bfactors)
     pymol.render(scene)
 
     return Drawn(report, scene, port, pymol, fake)
+
+
+def draw(view, rows, *args, preserve_bfactors: bool = True, port=None, **kwargs) -> Drawn:
+    """Run an atoms-first view over ``rows`` and render what it returned."""
+    return render(
+        view(make_atoms(rows), *args, **kwargs),
+        rows,
+        port=port,
+        preserve_bfactors=preserve_bfactors,
+    )

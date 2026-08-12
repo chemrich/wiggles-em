@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from conftest import draw, render
 
 from wiggles_em.atoms import Atom
 from wiggles_em.bfactors import has_stash
@@ -14,21 +15,12 @@ from wiggles_em.ensembles import (
     per_residue_spread,
 )
 from wiggles_em.port import FakePort, PortError
+from wiggles_em.scene import ColorByScalar, Morph, SizeByScalar
 
 
-def make_port(n_states, coords_by_state, atom_rows):
-    """FakePort answering count_states, iterate_to_list, and get_coords.
-
-    get_coords is a callable response so each state returns its own coords.
-    """
-    return FakePort(
-        {
-            "count_states": n_states,
-            "iterate_to_list": atom_rows,
-            # callable response: varies the answer by the state argument
-            "get_coords": lambda _sel, state: coords_by_state[state - 1],
-        }
-    )
+def spread(coords, rows, **kw):
+    """Run ensemble_spread_view over coordinates and rows, and render it."""
+    return draw(ensemble_spread_view, rows, coords, "obj", **kw)
 
 
 ROWS_2 = [
@@ -81,97 +73,104 @@ def test_misaligned_atoms_and_spread_is_an_error():
 # -- ensemble_spread_view --------------------------------------------------
 
 
+ONE_ATOM = [("A", "1", "MET", "CA", "", 1.0, 20.0)]
+
+
 def test_single_state_object_declines_and_redirects():
-    port = FakePort({"count_states": 1})
-    out = ensemble_spread_view(port, "obj")
-    assert "needs at least 2" in out
-    assert "altloc_view" in out  # points at the right tool for the other case
-    assert not port.queried("spectrum")
+    d = spread([[(0.0, 0.0, 0.0)]], ONE_ATOM)
+    assert "needs at least 2" in d.report
+    assert "altloc_view" in d.report  # points at the right tool for the other case
+    assert not d.scene.draws, d.scene
+    assert not d.port.queried("spectrum")
 
 
 def test_spread_view_colours_and_putties():
-    port = make_port(
-        2,
+    d = spread(
         [[(0.0, 0.0, 0.0), (0.0, 0.0, 0.0)], [(2.0, 0.0, 0.0), (0.0, 0.0, 0.0)]],
         ROWS_2,
     )
-    out = ensemble_spread_view(port, "obj")
-    assert "2 states, 2 atoms, 2 residues" in out
-    assert port.queried("spectrum")
-    assert port.called("cartoon", "putty", "obj"), port.call_log
-    assert SPREAD_LEGEND in out
+    assert "2 states, 2 atoms, 2 residues" in d.report
+    assert d.scene.has(ColorByScalar) and d.scene.has(SizeByScalar), d.scene
+    assert d.port.called("cartoon", "putty", "(obj)"), d.port.call_log
+    assert SPREAD_LEGEND in d.report
+
+
+def test_spread_domain_is_scaled_to_this_object():
+    """Unlike occupancy, spread has no absolute scale — so the domain is the
+    observed maximum, and the report has to say so or the scaling is implicit."""
+    d = spread([[(0.0, 0.0, 0.0)], [(2.0, 0.0, 0.0)]], ONE_ATOM)
+    (op,) = d.scene.of(ColorByScalar)
+    assert op.domain == (0.0, 1.0), op  # RMS of +/-1 about the centroid
+    assert "scaled to this object" in d.report
+
+
+def test_colour_and_thickness_share_one_field():
+    """Two encodings of one quantity must not disagree about its scale."""
+    d = spread([[(0.0, 0.0, 0.0)], [(2.0, 0.0, 0.0)]], ONE_ATOM)
+    (colour,) = d.scene.of(ColorByScalar)
+    (size,) = d.scene.of(SizeByScalar)
+    assert colour.field == size.field
+    assert colour.domain == size.domain
 
 
 def test_spread_legend_denies_being_an_error_bar():
-    port = make_port(
-        2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], [("A", "1", "MET", "CA", "", 1.0, 20.0)]
-    )
-    out = ensemble_spread_view(port, "obj")
+    out = spread([[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ONE_ATOM).report
     assert "NOT a calibrated uncertainty" in out
     assert "not mean the true position is less well determined" in out
 
 
 def test_spread_view_preserves_bfactors():
-    port = make_port(
-        2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], [("A", "1", "MET", "CA", "", 1.0, 20.0)]
-    )
-    out = ensemble_spread_view(port, "obj")
+    d = spread([[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ONE_ATOM)
     assert has_stash("obj")
-    assert "restore_bfactors" in out
+    assert "restore_bfactors" in d.full_report
 
 
 def test_putty_can_be_disabled():
-    port = make_port(
-        2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], [("A", "1", "MET", "CA", "", 1.0, 20.0)]
-    )
-    ensemble_spread_view(port, "obj", as_putty=False)
-    assert not port.queried("cartoon")
+    d = spread([[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ONE_ATOM, as_putty=False)
+    assert not d.scene.has(SizeByScalar)
+    assert not d.port.queried("cartoon")
 
 
 # -- morph_states — the refusal is the point -------------------------------
 
 
 def test_morph_refuses_differing_topology_and_explains():
-    port = make_port(2, [[(0.0, 0.0, 0.0)], [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)]], ROWS_2)
-    out = morph_states(port, "obj")
-    assert "REFUSED" in out
-    assert "state 1: 1" in out and "state 2: 2" in out
-    assert "ensemble_spread_view" in out  # offers the tool that does work
-    assert not port.queried("morph"), port.call_log
+    d = render(morph_states([1, 2], "obj"))
+    assert "REFUSED" in d.report
+    assert "state 1: 1" in d.report and "state 2: 2" in d.report
+    assert "ensemble_spread_view" in d.report  # offers the tool that does work
+    assert not d.scene.has(Morph), d.scene
+    assert not d.port.queried("morph"), d.port.call_log
 
 
 def test_morph_refuses_single_state():
-    port = FakePort({"count_states": 1})
-    out = morph_states(port, "obj")
-    assert "REFUSED" in out
-    assert not port.queried("morph")
+    d = render(morph_states([1], "obj"))
+    assert "REFUSED" in d.report
+    assert not d.port.queried("morph")
 
 
 def test_morph_proceeds_on_shared_topology():
-    port = make_port(2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ROWS_2)
-    out = morph_states(port, "obj", steps=10)
-    assert "Topology check passed" in out
-    assert port.called("morph", "obj_morph", "obj", refinement=0, steps=10), port.call_log
+    d = render(morph_states([1, 1], "obj", steps=10))
+    assert "Topology check passed" in d.report
+    assert d.port.called("morph", "obj_morph", "obj", refinement=0, steps=10), d.port.call_log
 
 
 def test_morph_states_says_interpolated_frames_are_invented():
     """SPEC invariant I1 in spirit: generated content must be labelled."""
-    port = make_port(2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ROWS_2)
-    out = morph_states(port, "obj")
-    assert "generated, not observed" in out
+    report, _ = morph_states([1, 1], "obj")
+    assert "generated, not observed" in report
 
 
 def test_validate_only_creates_nothing():
-    port = make_port(2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ROWS_2)
-    out = morph_states(port, "obj", validate_only=True)
-    assert "no morph created" in out
-    assert not port.queried("morph")
+    d = render(morph_states([1, 1], "obj", validate_only=True))
+    assert "no morph created" in d.report
+    assert not d.scene.has(Morph)
+    assert not d.port.queried("morph")
 
 
 def test_morph_honours_custom_name():
-    port = make_port(2, [[(0.0, 0.0, 0.0)], [(1.0, 0.0, 0.0)]], ROWS_2)
-    morph_states(port, "obj", name="swing")
-    assert port.calls("morph")[0][0][:2] == ("swing", "obj"), port.call_log
+    d = render(morph_states([1, 1], "obj", name="swing"))
+    assert d.port.calls("morph")[0][0][:2] == ("swing", "obj"), d.port.call_log
 
 
 def test_morph_degrades_when_pymol_is_open_source():
@@ -188,19 +187,16 @@ def test_morph_degrades_when_pymol_is_open_source():
                 )
             return super().query(action, *args, **kwargs)
 
-    port = RefusingPort(
-        {
-            "count_states": 2,
-            "iterate_to_list": ROWS_2,
-            "get_coords": lambda _s, state: [(0.0, 0.0, 0.0)],
-        }
-    )
-    out = morph_states(port, "obj")
+    d = render(morph_states([1, 1], "obj"), port=RefusingPort({}))
 
-    assert "Topology check passed" in out
-    assert "Incentive-only" in out
-    assert "set all_states, on" in out  # a way to see the motion regardless
-    assert "ensemble_spread_view" in out  # and the tool that needs no licence
+    # The judgement is the view's and needs no licence...
+    assert "Topology check passed" in d.report
+    # ...while the licence caveat is the backend's, because protean
+    # interpolates natively and must not inherit PyMOL's advice.
+    assert "Incentive-only" not in d.report
+    assert "Incentive-only" in d.notes
+    assert "set all_states, on" in d.notes  # a way to see the motion regardless
+    assert "ensemble_spread_view" in d.notes  # and the tool that needs no licence
 
 
 def test_other_morph_errors_still_raise():
@@ -212,12 +208,5 @@ def test_other_morph_errors_still_raise():
                 raise PortError("morph failed: Error: Invalid selection name")
             return super().query(action, *args, **kwargs)
 
-    port = BrokenPort(
-        {
-            "count_states": 2,
-            "iterate_to_list": ROWS_2,
-            "get_coords": lambda _s, state: [(0.0, 0.0, 0.0)],
-        }
-    )
     with pytest.raises(PortError, match="Invalid selection"):
-        morph_states(port, "obj")
+        render(morph_states([1, 1], "obj"), port=BrokenPort({}))

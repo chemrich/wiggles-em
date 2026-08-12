@@ -41,8 +41,9 @@ from __future__ import annotations
 
 from wiggles_em.density import DEFAULT_SIGMA, to_absolute, to_sigma
 from wiggles_em.heterogeneity import Ensemble, Method, loaded_ensemble
-from wiggles_em.port import PortError, PymolPort, call
+from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
+from wiggles_em.scene import ColorFlat, Frames, Isosurface, Legend, Rep, Scene, Sel, Unit
 
 #: Phrasings that would turn a gap into an absence claim. I3 forbids all of
 #: them, in any output this package produces about latent space. Checked by
@@ -109,7 +110,6 @@ def frame_levels(ensemble: Ensemble, absolute: float) -> list[float | None]:
 
 
 def latent_traverse_view(
-    port: PymolPort,
     ensemble_name: str,
     *,
     level: float | None = None,
@@ -117,11 +117,10 @@ def latent_traverse_view(
     name: str | None = None,
     color: str = "skyblue",
     build_movie: bool = True,
-) -> str:
+) -> tuple[str, Scene]:
     """Build a steppable isosurface trajectory through an ensemble's frames.
 
     Args:
-        port: A live or fake PyMOL port.
         ensemble_name: An ensemble loaded through ``load_ensemble``.
         level: Contour level. ``None`` uses :data:`DEFAULT_SIGMA` against the
             first frame, then holds that **absolute** value across all frames.
@@ -177,7 +176,7 @@ def latent_traverse_view(
                 f"      load_ensemble(path, {ensemble_name!r}, method='cryodrgn')",
                 "  Accepted: " + ", ".join(m.value for m in Method if m is not Method.UNKNOWN),
             ]
-        )
+        ), Scene()
 
     first = ensemble.headers[0]
     if level is None:
@@ -206,22 +205,27 @@ def latent_traverse_view(
     prefix = name or f"{ensemble_name}_surf"
     width = max(2, len(str(ensemble.n_frames)))
     surfaces: list[str] = []
+    ops: list = []
     for index, (obj, sigma) in enumerate(usable, start=1):
         surface = f"{prefix}_{index:0{width}d}"
-        call(port, "isosurface", surface, obj, sigma)
-        call(port, "color", color, surface)
+        # Each frame carries its OWN sigma, converted from one absolute level
+        # against that frame's header. A fixed sigma across frames contours
+        # each against its own normalisation, which flattens away the density
+        # change the traversal exists to show.
+        ops.append(Isosurface(surface, obj, level=sigma, unit=Unit.SIGMA, style=Rep.SURFACE))
+        # One colour for every frame, on purpose: a per-frame spectrum would
+        # encode frame index as if it were a measured quantity.
+        ops.append(ColorFlat(Sel.obj(surface), color))
         surfaces.append(surface)
 
-    if build_movie and len(surfaces) > 1:
-        call(port, "mset", f"1 x{len(surfaces)}")
-        for index, surface in enumerate(surfaces, start=1):
-            # mdo attaches a command to a frame. It is a cmd function, so this
-            # is still a structured call — the do() prohibition is about
-            # cmd.do, which reports success for any string at all.
-            call(port, "mdo", index, f"disable {prefix}_*; enable {surface}")
-        call(port, "frame", 1)
+    if len(surfaces) > 1:
+        ops.append(Frames(tuple(surfaces), build_timeline=build_movie))
+    ops.append(Legend(POPULATION_LEGEND))
+    ops.append(Legend(GAP_LEGEND))
 
-    return _report(ensemble, prefix, surfaces, absolute, levels, used_default, build_movie)
+    return _report(
+        ensemble, prefix, surfaces, absolute, levels, used_default, build_movie
+    ), Scene(ops)
 
 
 def _report(

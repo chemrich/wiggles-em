@@ -398,17 +398,35 @@ class ColorSurfaceByMap(SceneOp):
 
 
 @dataclass(frozen=True)
+class Arrow:
+    """One displacement arrow, in model coordinates.
+
+    Radius is per-arrow because a long displacement drawn at the same width as
+    a short one reads as equally confident; the views scale it with length.
+    """
+
+    start: tuple[float, float, float]
+    end: tuple[float, float, float]
+    colour: Colour
+    radius: float = 0.15
+
+
+@dataclass(frozen=True)
 class Arrows(SceneOp):
     """Displacement arrows, as explicit geometry.
 
-    ``segments`` is ``(start, end, colour)`` in model coordinates. PyMOL builds
-    a CGO; Mol\\* builds a custom shape. Neither has a semantic notion of "an
-    arrow between two atoms", so the view does the arithmetic and hands over
-    geometry — which also keeps the arrowhead proportions identical.
+    Each :class:`Arrow` is start, end, colour and radius in model coordinates.
+    PyMOL builds a CGO; Mol\\* builds a custom shape. Neither has a semantic
+    notion of "an arrow between two atoms", so the view does the arithmetic and
+    hands over geometry — which also keeps the arrowhead proportions identical
+    between viewers instead of leaving each to invent them.
+
+    ``name`` is the object the arrows land in, so a backend can replace the
+    previous set rather than accumulating them.
     """
 
-    segments: tuple[tuple[tuple[float, float, float], tuple[float, float, float], Colour], ...]
-    radius: float = 0.15
+    segments: tuple[Arrow, ...]
+    name: str = "wgf_arrows"
 
 
 @dataclass(frozen=True)
@@ -426,6 +444,24 @@ class Frames(SceneOp):
 
     names: tuple[str, ...]
     build_timeline: bool = False
+
+
+@dataclass(frozen=True)
+class Morph(SceneOp):
+    """Interpolate between the states of a multi-state object.
+
+    The view emitting this has already decided the interpolation is well posed
+    — that atoms pair across states — which is the judgement in
+    ``morph_states``. Whether the viewer can actually perform it is separate:
+    ``cmd.morph`` is Incentive-only, so on open-source PyMOL this op cannot be
+    honoured even though the request was sound. That is a licence fact about
+    one viewer, so the backend reports it as a note rather than the view
+    hedging in prose every viewer would have to read.
+    """
+
+    name: str
+    obj: str
+    steps: int = 30
 
 
 @dataclass(frozen=True)
@@ -527,6 +563,7 @@ class Refused(Exception):
 
 
 __all__ = [
+    "Arrow",
     "Arrows",
     "ColorByScalar",
     "ColorFlat",
@@ -539,6 +576,7 @@ __all__ = [
     "Isosurface",
     "Label",
     "Legend",
+    "Morph",
     "Opacity",
     "Refused",
     "Rep",
