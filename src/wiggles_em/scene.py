@@ -262,7 +262,7 @@ class ScalarField:
         # raised TypeError comparing the two. A guard that dies on its own
         # subject matter is worse than the silent wrongness it replaced.
         wrong = sorted(
-            (k for k in self.keys if not isinstance(k, tuple) or len(k) != 2),
+            {repr(k): k for k in self.keys if not isinstance(k, tuple) or len(k) != 2}.values(),
             key=repr,
         )
         if wrong:
@@ -279,7 +279,16 @@ class ScalarField:
             # the key. Nothing about the result looks unusual: the wrong atom
             # is drawn a legitimate colour from the right scale.
             seen: set[tuple[str, ...]] = set()
-            clashes = sorted({k for k in self.keys if k in seen or seen.add(k)})  # type: ignore[func-returns-value]
+            # `key=repr` for the same reason as the arity guard above: these are
+            # caller-supplied keys reached *because* something is wrong with
+            # them, and a per-residue `resi` is an int in some callers and a str
+            # in others, so ordering the raw values raises TypeError from inside
+            # the error path. Fixing one of these two guards and not the other
+            # is how this survived a round.
+            clashes = sorted(
+                {k for k in self.keys if k in seen or seen.add(k)},  # type: ignore[func-returns-value]
+                key=repr,
+            )
             raise ValueError(
                 f"duplicate keys in a per-{self.granularity.value} scalar field: "
                 f"{clashes[:5]}{' …' if len(clashes) > 5 else ''}. Each key must "
@@ -541,13 +550,30 @@ class Frames(SceneOp):
                 f"{len(self.names)} frame names but {len(self.numbers)} numbers — "
                 f"a timeline built from these would step to the wrong density"
             )
+        # Integers first: everything below compares them — `sorted()` here and
+        # `n < 1` further down — and a string sails through the length check
+        # only to raise TypeError from inside the guard meant to reject it.
+        # Third instance of that shape in this file; see the ScalarField guards.
+        not_whole = sorted(
+            (n for n in self.numbers if not isinstance(n, int) or isinstance(n, bool)),
+            key=repr,
+        )
+        if not_whole:
+            raise ValueError(
+                f"frame numbers must be whole numbers, but got {not_whole} — a "
+                f"timeline is numbered by integer frame, and anything else "
+                f"cannot be placed on it"
+            )
         # A backend lowers this to a number -> name mapping, so a repeated
         # number keeps one surface and drops the other, which is then never
         # enabled on any frame. Same silent-drop the ScalarField key check
         # exists for, and the same remedy: refuse rather than render.
         if len(set(self.numbers)) != len(self.numbers):
             seen: set[int] = set()
-            clashes = sorted({n for n in self.numbers if n in seen or seen.add(n)})  # type: ignore[func-returns-value]
+            clashes = sorted(
+                {n for n in self.numbers if n in seen or seen.add(n)},  # type: ignore[func-returns-value]
+                key=repr,
+            )
             raise ValueError(
                 f"duplicate frame numbers {clashes} — each surface must hold a "
                 f"different frame, or one of them is silently never shown"

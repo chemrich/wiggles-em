@@ -386,3 +386,50 @@ class TestConvertedIsKeyedTheWayItIsDocumented:
 
         assert backend.converted["low"] == (1.0, 0.5)
         assert backend.converted["high"] == (3.0, 1.5)
+
+
+class TestEveryGuardSurvivesItsOwnSubjectMatter:
+    """H2 fixed this for the arity guard and left the duplicate-key guard three
+    lines below it with the identical defect, and `Frames` with the same shape
+    again. A guard that raises TypeError on the malformed input it exists to
+    reject has replaced a silent wrong answer with a worse error message.
+
+    The rule these encode: anything sorting or comparing caller-supplied values
+    inside an error path must not assume those values are well-formed. They are
+    not — that is why the path was entered.
+    """
+
+    def test_duplicate_keys_that_cannot_be_ordered_are_still_reported(self):
+        """Mixed int/str `resi` is the realistic trigger, and it is a
+        per-residue key, so only this guard ever sees it."""
+        with pytest.raises(ValueError, match="duplicate"):
+            ScalarField.per_residue(
+                [(("A", 12), 0.5), (("A", 12), 0.6), (("A", "12"), 0.7), (("A", "12"), 0.8)]
+            )
+
+    def test_the_arity_message_shows_distinct_shapes_not_repeats(self):
+        """Dropping the set to add `key=repr` lost the deduplication, so a field
+        where every atom carries the same wrong key reported it three times
+        instead of showing what shapes were wrong."""
+        with pytest.raises(ValueError) as excinfo:
+            ScalarField.per_atom(
+                [(("A", 1, "CA", ""), 0.5), (("A", 1, "CA", ""), 0.6), (("A", 1, "CA", ""), 0.7)]
+            )
+
+        assert str(excinfo.value).count("'CA'") == 1, str(excinfo.value)
+
+    def test_frames_reports_non_integer_numbers_rather_than_raising(self):
+        """Same shape a third time: `sorted()` over the numbers, then `n < 1`,
+        both of which blow up on a string before the guard can speak."""
+        with pytest.raises(ValueError, match="whole numbers"):
+            Frames(("s_01", "s_02"), ("1", "2"), build_timeline=True)
+
+    def test_frames_reports_mixed_type_numbers(self):
+        with pytest.raises(ValueError, match="whole numbers"):
+            Frames(("s_01", "s_02"), (1, "2"), build_timeline=True)
+
+    def test_the_well_formed_paths_are_untouched(self):
+        """Every guard must still let correct input through."""
+        assert len(ScalarField.per_atom([(("m", "1"), 0.5), (("m", "2"), 0.25)])) == 2
+        assert len(ScalarField.per_residue([(("A", "1"), 0.5)])) == 1
+        assert Frames(("s_01", "s_02"), (1, 2), build_timeline=True).numbers == (1, 2)
