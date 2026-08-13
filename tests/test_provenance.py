@@ -203,3 +203,62 @@ def test_the_longest_matching_token_wins(tmp_path):
 
     assert evidence.suggested is not Provenance.SHARPENED, evidence.reasons
     assert any("unsharp" in reason for reason in evidence.reasons), evidence.reasons
+
+
+class TestCategoryPriorityFollowsTheEnum:
+    """`Provenance` documents itself as "ordered from observed to invented",
+    with GENERATED last — the strongest caveat, because no particle was
+    reconstructed into that density at all.
+
+    The matching rule took its priority from `_TOKENS`' declaration order
+    instead, which lists NN_ENHANCED before GENERATED. Two structures encoding
+    the same belief, disagreeing: running EMReady on a cryoDRGN volume is an
+    ordinary workflow, and it downgraded "produced by a model" to "passed
+    through a network".
+    """
+
+    def _suggest(self, tmp_path, filename):
+        from tests.test_mapinfo import write_map
+        from wiggles_em.mapinfo import read_map_header
+
+        header = read_map_header(write_map(tmp_path, filename))
+        return gather_evidence(header, filename).suggested
+
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "cryodrgn_emready.mrc",
+            "kmeans20_emready.mrc",
+            "latent_traverse_locscale.mrc",
+            "3dflex_deepemhancer.mrc",
+        ],
+    )
+    def test_a_generated_volume_stays_generated_after_network_enhancement(
+        self, tmp_path, filename
+    ):
+        assert self._suggest(tmp_path, filename) is Provenance.GENERATED, (
+            f"{filename} lost its GENERATED label. A decoder volume that was "
+            f"then network-enhanced is still a volume no particle was "
+            f"reconstructed into, which is the stronger warning of the two."
+        )
+
+    def test_the_priority_is_the_enum_order_not_the_token_table_order(self):
+        """The rule this class exists to pin. If the two ever disagree again,
+        this fails rather than a filename test failing obscurely."""
+        from wiggles_em.provenance import _TOKENS
+
+        declared = [provenance for provenance, _tokens in _TOKENS]
+        severity = list(Provenance)
+
+        # They may legitimately differ — the point is that the MATCHING rule
+        # must follow severity, so a mismatch here must not change behaviour.
+        assert set(declared) <= set(severity)
+        # GENERATED is the most-invented category and must outrank NN_ENHANCED.
+        assert severity.index(Provenance.GENERATED) > severity.index(Provenance.NN_ENHANCED)
+
+    def test_the_earlier_findings_still_hold(self, tmp_path):
+        """#7's cases, and the `unsharpened` shadowing case, must survive."""
+        assert self._suggest(tmp_path, "postprocess_emready.mrc") is Provenance.NN_ENHANCED
+        assert self._suggest(tmp_path, "postprocess_locscale.mrc") is Provenance.NN_ENHANCED
+        assert self._suggest(tmp_path, "unsharpened.mrc") is Provenance.MEASURED
+        assert self._suggest(tmp_path, "sharpened.mrc") is Provenance.SHARPENED

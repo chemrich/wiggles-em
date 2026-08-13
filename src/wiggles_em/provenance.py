@@ -145,9 +145,17 @@ def gather_evidence(header: MapHeader, path: str | Path | None = None) -> Eviden
     # taken the trouble to record. Sorting by length makes the more specific
     # token win whatever order the table is written in; ties keep declaration
     # order, since sorted() is stable.
+    # Priority comes from the Provenance enum, which documents itself as
+    # "ordered from observed to invented" — NOT from _TOKENS' declaration
+    # order. Those are two structures encoding the same belief, and they
+    # disagreed: _TOKENS lists NN_ENHANCED before GENERATED, so running EMReady
+    # on a cryoDRGN volume downgraded "produced by a model, no particle was
+    # reconstructed into this density" to "passed through a network". The
+    # cautionary ordering has one home, and this reads it from there.
+    _severity = {p: i for i, p in enumerate(Provenance)}
     candidates = [
-        (rank, provenance, token)
-        for rank, (provenance, tokens) in enumerate(_TOKENS)
+        (-_severity[provenance], provenance, token)
+        for provenance, tokens in _TOKENS
         for token in tokens
         if token in haystack
     ]
