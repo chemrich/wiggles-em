@@ -144,10 +144,41 @@ came from.
 - **`ensemble_spread_view` requires `superposed`.** Spread measures whatever
   separates the states, including a rigid-body offset that is not flexibility.
   Fitting stays with the host, which has the session and a superposition
-  routine already — but the flag is a claim, so `radial_spread` checks it
-  against the data: distance-to-own-centroid is invariant under translation and
-  rotation, and a positional spread that dwarfs it means rigid motion whatever
-  the caller said.
+  routine already — but the flag is a claim, so `internal_distance_change`
+  checks it against the data. A rigid motion preserves every interatomic
+  distance exactly, so a large positional spread with no internal rearrangement
+  under it is a rigid offset whatever the caller said.
+
+### Changed — source-breaking
+
+Both hosts construct these types directly, so each of these needs a change on
+their side. They are grouped here rather than buried in the fix list because
+the changelog is the only place a consumer looks.
+
+- **`Atom.index` is now `Atom.rank`**, and `ATOM_EXPR` asks PyMOL for `rank`.
+  `index` is renumbered when atoms are removed — checked live on PyMOL 3.1.0,
+  where `remove hydro` moved it and left `rank` alone — so a value stashed
+  against it silently repoints at a different atom the moment anyone tidies a
+  structure. `Atom.key` is `(model, rank)`; build per-atom `ScalarField` keys
+  with `atom.key` rather than assembling the tuple.
+- **`PymolBackend` and `draw` require a keyword-only `normalised`.** It had a
+  default of `None` and `draw` never passed it, so a host that had correctly
+  read `normalize_ccp4_maps off` still got a backend assuming the opposite.
+  Pass what `normalisation_state` returned — including `None`, which now has to
+  be chosen rather than fallen into.
+- **`Frames` requires `numbers`**, the frame each surface was made from. It is
+  not derivable from position: a frame whose header has no usable RMS is
+  skipped, so surfaces run 1, 2, 4, 5 and numbering by position steps `frame 4`
+  to frame 5's density.
+- **`radial_spread` is gone**, replaced by `internal_distance_change`. It
+  measured distance to the state's own centroid, which is blind to tangential
+  motion: a counter-rotating twist — a real conformational change — scored
+  exactly zero and was reported as rigid-body motion whatever the threshold.
+  `RIGID_RATIO` moved 10.0 → 2.0 with it; the two are calibrated together and
+  neither carries over to the other's quantity.
+- **`rms_meaning` is public** (was `_rms_meaning`), because three modules print
+  it and a second copy would be a second place for "rms=0 means flat" to be
+  wrong.
 
 ### Notes
 
