@@ -313,3 +313,67 @@ def test_no_frame_with_a_usable_rms_is_refused(ensemble):
     _, name = ensemble(rms=(-1.0, 0.0))
     with pytest.raises(PortError, match=r"no frame .* has a usable RMS"):
         latent_traverse_view(name, level=2.0, units="sigma")
+
+
+class TestTheAnchorFrameIsAlwaysAttributed:
+    """A sigma level is meaningless without the header it was read against.
+
+    The anchor is the first frame whose header carries a usable rms, which is
+    frame 1 only when frame 1's statistics exist. The report used to claim "the
+    FIRST frame" unconditionally; the fix for that then attributed the anchor
+    only on the defaulted path, leaving a caller-supplied sigma silently
+    interpreted against a frame the caller never named — the same defect, one
+    branch over.
+    """
+
+    def _gapped(self, tmp_path):
+        """Frame 1 has rms=0, so the anchor is frame 2."""
+        root = tmp_path / "ens"
+        root.mkdir()
+        (root / "z.pkl").write_text("x")
+        write_map(root, "vol_1.mrc", rms=0.0, dmean=10.0)
+        write_map(root, "vol_2.mrc", rms=0.5, dmean=10.0)
+        write_map(root, "vol_3.mrc", rms=0.6, dmean=10.0)
+        names = [f"ens_f{i:02d}" for i in range(1, 4)]
+        load_ensemble(FakePort({"get_names": names, "iterate_to_list": []}), root, "ens")
+
+    def test_a_defaulted_level_names_its_anchor(self, tmp_path):
+        self._gapped(tmp_path)
+        report, _ = latent_traverse_view("ens")
+
+        assert "frame 2" in report, report
+        assert "FIRST frame" not in report
+
+    def test_an_explicit_sigma_level_names_its_anchor(self, tmp_path):
+        """The branch the previous fix missed."""
+        self._gapped(tmp_path)
+        report, _ = latent_traverse_view("ens", level=1.5, units="sigma")
+
+        assert "frame 2" in report, (
+            "a caller-supplied sigma was interpreted against frame 2 and the "
+            f"report never says so:\n{report}"
+        )
+
+    def test_an_absolute_level_claims_no_anchor(self, tmp_path):
+        """An absolute level needs no anchor, so attributing one would be a
+        claim about a conversion that never happened."""
+        self._gapped(tmp_path)
+        report, _ = latent_traverse_view("ens", level=10.75, units="absolute")
+
+        assert "interpreted against frame" not in report, report
+        assert "sigma against frame" not in report, report
+
+    def test_the_anchor_is_not_explained_away_when_it_is_frame_one(self, tmp_path):
+        """The "not frame 1" paragraph must not appear when it *is* frame 1."""
+        root = tmp_path / "ok"
+        root.mkdir()
+        (root / "z.pkl").write_text("x")
+        for i, rms in enumerate((0.5, 0.6, 0.8), start=1):
+            write_map(root, f"vol_{i}.mrc", rms=rms)
+        names = [f"ok_f{i:02d}" for i in range(1, 4)]
+        load_ensemble(FakePort({"get_names": names, "iterate_to_list": []}), root, "ok")
+
+        report, _ = latent_traverse_view("ok", level=1.5, units="sigma")
+
+        assert "frame 1" in report, report
+        assert "not frame 1" not in report, report

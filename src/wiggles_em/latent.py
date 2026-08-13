@@ -203,6 +203,11 @@ def latent_traverse_view(
     anchor_position = next((i for i, h in enumerate(ensemble.headers) if usable_rms(h)), None)
     anchor = ensemble.headers[anchor_position] if anchor_position is not None else None
     anchor_frame = None if anchor_position is None else anchor_position + 1
+    # The anchor is used whenever the level is in sigma — whether it was
+    # defaulted or supplied. Attributing it only on the defaulted path left a
+    # caller-supplied sigma silently interpreted against a frame they never
+    # named, which is the same defect the FIRST-frame claim was.
+    anchor_used = level is None or units == "sigma"
 
     if level is None:
         if anchor is None:
@@ -288,6 +293,7 @@ def latent_traverse_view(
         build_movie,
         skipped_frames,
         anchor_frame,
+        anchor_used,
     ), Scene(ops)
 
 
@@ -301,6 +307,7 @@ def _report(
     build_movie: bool,
     skipped_frames: list[int],
     anchor_frame: int | None,
+    anchor_used: bool,
 ) -> str:
     known = [s for s in levels if s is not None]
     lo, hi = min(known), max(known)
@@ -345,12 +352,24 @@ def _report(
             "  each frame separately.",
         ]
 
-    if used_default:
+    if anchor_used:
         lines += [
             "",
-            f"  No level given, so {DEFAULT_SIGMA} sigma against frame {anchor_frame} was",
-            "  used and converted to an absolute value. A generic starting point,",
-            "  not a recommendation for this ensemble.",
+            *(
+                [
+                    f"  No level given, so {DEFAULT_SIGMA} sigma against frame {anchor_frame}",
+                    "  was used and converted to an absolute value. A generic starting",
+                    "  point, not a recommendation for this ensemble.",
+                ]
+                if used_default
+                else [
+                    f"  The level you gave is in sigma, read against frame {anchor_frame}",
+                    "  and converted to the absolute value above.",
+                ]
+            ),
+            # Which frame the sigma was read against is a fact the reader needs
+            # to check the number, and it is not frame 1 whenever frame 1's
+            # header carries no usable rms.
             *(
                 []
                 if anchor_frame == 1
