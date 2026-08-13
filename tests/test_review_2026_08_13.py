@@ -56,13 +56,13 @@ def test_1_a_view_that_destroyed_bfactors_does_not_let_the_next_one_stash_garbag
 
     # View A destroys the column and preserves nothing.
     port_a = FakePort({"iterate_to_list": [(*r, "m", i) for i, r in enumerate(original, 1)]})
-    PymolBackend(port_a, preserve_bfactors=False).render(scene)
+    PymolBackend(port_a, preserve_bfactors=False, normalised=None).render(scene)
     assert not has_stash("m"), "precondition: preserve_bfactors=False leaves no stash"
 
     # View B now reads a column holding view A's scalars, not the originals.
     clobbered = [("A", "1", "MET", "CA", "", 1.0, 0.9), ("A", "2", "SER", "CA", "", 1.0, 0.3)]
     port_b = FakePort({"iterate_to_list": [(*r, "m", i) for i, r in enumerate(clobbered, 1)]})
-    backend_b = PymolBackend(port_b, preserve_bfactors=True)
+    backend_b = PymolBackend(port_b, preserve_bfactors=True, normalised=None)
     backend_b.render(scene)
 
     note = "\n".join(backend_b.notes)
@@ -202,7 +202,6 @@ def test_10_the_documented_per_atom_key_is_the_key_the_backend_looks_up():
 # ── #7 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #7 not fixed yet")
 @pytest.mark.parametrize(
     "filename",
     ["postprocess_emready.mrc", "postprocess_locscale.mrc", "run_postprocess_cryolvm.mrc"],
@@ -276,7 +275,6 @@ def test_3_a_map_with_no_computed_statistics_does_not_kill_the_resolution_view(t
 # ── #4 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #4 not fixed yet")
 def test_4_an_unnormalised_session_can_still_render_an_ensemble(tmp_path):
     """REVIEW #4, src/wiggles_em/backends/pymol.py:380.
 
@@ -358,7 +356,6 @@ def test_5_a_movie_frame_steps_to_the_latent_frame_its_surface_is_named_for(tmp_
 # ── #6 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #6 not fixed yet")
 def test_6_the_public_draw_helper_does_not_silently_assume_a_normalised_session(tmp_path):
     """REVIEW #6, src/wiggles_em/backends/pymol.py:543.
 
@@ -391,7 +388,7 @@ def test_6_the_public_draw_helper_does_not_silently_assume_a_normalised_session(
     load_map(port, res, "res", provenance=Provenance.MEASURED)
 
     _report, scene = local_resolution_view("main", "res", normalised=False)
-    backend = draw(port, scene)
+    backend = draw(port, scene, normalised=False)
 
     assert backend.normalised is False, (
         "the session reports normalize_ccp4_maps off and the view was told "
@@ -405,7 +402,6 @@ def test_6_the_public_draw_helper_does_not_silently_assume_a_normalised_session(
 # ── #8 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #8 not fixed yet")
 def test_8_the_latent_report_names_the_frame_the_contour_was_actually_taken_against(tmp_path):
     """REVIEW #8, src/wiggles_em/latent.py:314.
 

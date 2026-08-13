@@ -146,13 +146,39 @@ def gather_evidence(header: MapHeader, path: str | Path | None = None) -> Eviden
     # token win whatever order the table is written in; ties keep declaration
     # order, since sorted() is stable.
     candidates = [
-        (provenance, token)
-        for provenance, tokens in _TOKENS
+        (rank, provenance, token)
+        for rank, (provenance, tokens) in enumerate(_TOKENS)
         for token in tokens
         if token in haystack
     ]
-    if candidates:
-        provenance, hit = sorted(candidates, key=lambda pair: -len(pair[1]))[0]
+    # Two rules, and neither works alone. `_TOKENS` is declared
+    # most-cautionary-first, and that order is the point: NN_ENHANCED's warning
+    # ("treat this map as a hypothesis, not a measurement") is not
+    # interchangeable with SHARPENED's. Replacing the declaration-order break
+    # with longest-token-wins dropped it, so `postprocess_emready.mrc` — the
+    # ordinary name for running EMReady on a RELION postprocess map — began
+    # reporting SHARPENED, because 'postprocess' is longer than 'emready'.
+    #
+    # But category priority alone reintroduces the bug longest-token was added
+    # to fix: 'unsharpened' contains both 'sharp' (SHARPENED) and 'unsharp'
+    # (MEASURED), and SHARPENED is declared first, so an unsharpened map would
+    # read as sharpened.
+    #
+    # What separates the two cases is *shadowing*. In 'unsharpened' one token
+    # is a substring of the other — they are the same evidence read at two
+    # lengths, and only the longer reading is real. In 'postprocess_emready'
+    # the tokens are independent matches at different positions, and both are
+    # true; the category order decides which warning the user gets.
+    #
+    # So: drop tokens contained in another match, then most-cautionary first,
+    # then longest within a category.
+    surviving = [
+        (rank, provenance, token)
+        for rank, provenance, token in candidates
+        if not any(token != other and token in other for _r, _p, other in candidates)
+    ]
+    if surviving:
+        _rank, provenance, hit = sorted(surviving, key=lambda t: (t[0], -len(t[2])))[0]
         evidence.suggested = provenance
         evidence.reasons.append(
             f"the name or labels contain {hit!r}, which suggests {provenance.value}"

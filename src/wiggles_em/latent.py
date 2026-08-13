@@ -125,8 +125,11 @@ def latent_traverse_view(
     Args:
         ensemble_name: An ensemble loaded through ``load_ensemble``.
         level: Contour level. ``None`` uses :data:`DEFAULT_SIGMA` against the
-            first frame, then holds that **absolute** value across all frames.
-        units: ``"sigma"`` (interpreted against frame 1) or ``"absolute"``.
+            first frame **whose header carries a usable RMS**, then holds that
+            **absolute** value across all frames. The report names which frame
+            that was; it is frame 1 unless frame 1's statistics are missing.
+        units: ``"sigma"`` interpreted against that same anchor frame, or
+            ``"absolute"``, which needs no anchor at all.
         name: Prefix for the isosurfaces. Defaults to ``<ensemble>_surf``.
         color: Colour for every frame. One colour on purpose — a per-frame
             spectrum would encode frame index as if it were a measured quantity.
@@ -192,7 +195,14 @@ def latent_traverse_view(
     # anyway yielded an anchor of dmean, a number unrelated to the level asked
     # for, which was then applied to every other frame. A level already given
     # in absolute units needs no anchor at all.
-    anchor = next((h for h in ensemble.headers if usable_rms(h)), None)
+    # Which frame this is has to travel with it. The report used to say "the
+    # FIRST frame" while the anchor had moved to the first frame with a usable
+    # RMS — so a reader checking the contour against frame 1's header, as the
+    # report told them to, got a different number and concluded the tool had
+    # converted wrongly.
+    anchor_position = next((i for i, h in enumerate(ensemble.headers) if usable_rms(h)), None)
+    anchor = ensemble.headers[anchor_position] if anchor_position is not None else None
+    anchor_frame = None if anchor_position is None else anchor_position + 1
 
     if level is None:
         if anchor is None:
@@ -240,7 +250,20 @@ def latent_traverse_view(
         # against that frame's header. A fixed sigma across frames contours
         # each against its own normalisation, which flattens away the density
         # change the traversal exists to show.
-        ops.append(Isosurface(surface, obj, level=sigma, unit=Unit.SIGMA, style=Rep.SURFACE))
+        # `equivalent` carries the shared absolute level. A host with
+        # normalize_ccp4_maps off needs the contour in absolute units, and an
+        # ensemble frame has no load_map record for the backend to convert
+        # against — so without this the whole traversal refused to render.
+        ops.append(
+            Isosurface(
+                surface,
+                obj,
+                level=sigma,
+                unit=Unit.SIGMA,
+                style=Rep.SURFACE,
+                equivalent=absolute,
+            )
+        )
         # One colour for every frame, on purpose: a per-frame spectrum would
         # encode frame index as if it were a measured quantity.
         ops.append(ColorFlat(Sel.obj(surface), color))
@@ -256,7 +279,15 @@ def latent_traverse_view(
     ops.append(Legend(GAP_LEGEND))
 
     return _report(
-        ensemble, prefix, surfaces, absolute, levels, used_default, build_movie, skipped_frames
+        ensemble,
+        prefix,
+        surfaces,
+        absolute,
+        levels,
+        used_default,
+        build_movie,
+        skipped_frames,
+        anchor_frame,
     ), Scene(ops)
 
 
@@ -269,6 +300,7 @@ def _report(
     used_default: bool,
     build_movie: bool,
     skipped_frames: list[int],
+    anchor_frame: int | None,
 ) -> str:
     known = [s for s in levels if s is not None]
     lo, hi = min(known), max(known)
@@ -316,9 +348,18 @@ def _report(
     if used_default:
         lines += [
             "",
-            f"  No level given, so {DEFAULT_SIGMA} sigma against the FIRST frame was",
+            f"  No level given, so {DEFAULT_SIGMA} sigma against frame {anchor_frame} was",
             "  used and converted to an absolute value. A generic starting point,",
             "  not a recommendation for this ensemble.",
+            *(
+                []
+                if anchor_frame == 1
+                else [
+                    f"  Frame {anchor_frame}, not frame 1: every earlier frame reports an",
+                    "  rms that cannot define a sigma scale, so no sigma level exists",
+                    "  against them to convert.",
+                ]
+            ),
         ]
 
     if skipped:

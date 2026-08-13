@@ -414,6 +414,20 @@ class Isosurface(SceneOp):
     style: Rep = Rep.MESH
     carve_around: Sel | None = None
     carve_radius: float | None = None
+    #: The same contour expressed in the *other* unit, when the view could
+    #: work it out and the backend cannot.
+    #:
+    #: A backend converts against the volume's header, which it reads from the
+    #: ``load_map`` record. Ensemble frames have no such record — they are
+    #: registered by ``load_ensemble`` — so a backend asked for the other unit
+    #: had no way to get there and refused, telling the user to load the volume
+    #: through ``load_map``, which for an ensemble frame is impossible. Nothing
+    #: was drawn at all.
+    #:
+    #: ``latent_traverse_view`` holds one absolute level and converts it to each
+    #: frame's own sigma using headers it already has. Carrying the absolute
+    #: value alongside costs nothing and is the only copy that exists.
+    equivalent: float | None = None
 
 
 @dataclass(frozen=True)

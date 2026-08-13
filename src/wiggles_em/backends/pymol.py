@@ -225,8 +225,9 @@ class PymolBackend:
     def __init__(
         self,
         port: PymolPort,
+        *,
         preserve_bfactors: bool = True,
-        normalised: bool | None = None,
+        normalised: bool | None,
     ) -> None:
         self.port = port
         self.preserve_bfactors = preserve_bfactors
@@ -238,6 +239,20 @@ class PymolBackend:
         #: describing units the surface was not drawn in. One read, one answer:
         #: the host calls :func:`normalisation_state` once and passes it here
         #: and to the view.
+        #:
+        #: **No default.** It had one — ``None`` — and the public :func:`draw`
+        #: helper never passed it, so a host that had correctly read
+        #: ``normalize_ccp4_maps off`` and told the view so got a backend that
+        #: silently assumed the opposite: Ångström breakpoints converted to
+        #: sigma against a volume still holding Ångströms, a surface flat in one
+        #: extreme colour, under a report stating they were sent unconverted.
+        #: A default is what lets two parts of the system hold different
+        #: beliefs, so ``None`` must now be chosen rather than fallen into.
+        #:
+        #: ``None`` still means "the session would not say", which
+        #: :func:`normalisation_state` returns when ``get`` is unavailable. It
+        #: is treated as normalised, because that is PyMOL's own default — but
+        #: it is now an assertion the caller makes, not one made for them.
         self.normalised = normalised
         #: Absolute levels this backend converted, by surface name. The report
         #: layer reads these back so it can state both units without
@@ -375,7 +390,9 @@ class PymolBackend:
 
     # -- volumes -----------------------------------------------------------
 
-    def _level_for(self, volume: str, level: float, unit: Unit) -> float:
+    def _level_for(
+        self, volume: str, level: float, unit: Unit, equivalent: float | None = None
+    ) -> float:
         """The number PyMOL wants, converted against *this* map's header.
 
         Which unit that is depends on the session, not on the op. PyMOL
@@ -389,6 +406,14 @@ class PymolBackend:
         wanted = Unit.SIGMA if self.normalised is not False else Unit.ABSOLUTE
         if unit is wanted:
             return level
+
+        # The view may already hold this contour in the other unit. An ensemble
+        # frame has no load_map record, so the header lookup below cannot
+        # succeed for it and the remedy the error suggests is impossible —
+        # nothing was drawn at all. Where the view could compute the equivalent
+        # it carries it, and it is the only copy in existence.
+        if equivalent is not None:
+            return equivalent
 
         entry = loaded_map(volume, self.port)
         if entry is None:
@@ -408,7 +433,7 @@ class PymolBackend:
         return converted
 
     def _isosurface(self, op: Isosurface) -> None:
-        level = self._level_for(op.volume, op.level, op.unit)
+        level = self._level_for(op.volume, op.level, op.unit, op.equivalent)
         action = "isomesh" if op.style is Rep.MESH else "isosurface"
         if op.carve_around is not None:
             if op.carve_radius is None:
@@ -565,9 +590,20 @@ class PymolBackend:
         )
 
 
-def draw(port: PymolPort, scene: Scene) -> PymolBackend:
-    """Render ``scene`` through ``port``. Returns the backend, for its record."""
-    backend = PymolBackend(port)
+def draw(port: PymolPort, scene: Scene, *, normalised: bool | None) -> PymolBackend:
+    """Render ``scene`` through ``port``. Returns the backend, for its record.
+
+    ``normalised`` is required and passed straight through: this helper used to
+    construct the backend with the default, so every host that rendered through
+    it got a backend assuming a normalised session however carefully it had
+    read the real answer and told the view.
+
+    Reading the session here instead was the alternative, and it is the one
+    thing this must not do — the view has already been given an answer, and a
+    second independent read is exactly how the two came to disagree. The host
+    calls :func:`normalisation_state` once and hands the result to both.
+    """
+    backend = PymolBackend(port, normalised=normalised)
     backend.render(scene)
     return backend
 
