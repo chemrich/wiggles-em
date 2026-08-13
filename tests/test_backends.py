@@ -13,7 +13,7 @@ import pytest
 
 from wiggles_em.backends.pymol import PymolBackend, render_selection
 from wiggles_em.port import FakePort
-from wiggles_em.scene import Frames, Isosurface, Scene, Sel, Unit
+from wiggles_em.scene import Frames, Isosurface, ScalarField, Scene, Sel, Unit
 
 
 def test_a_large_residue_set_does_not_become_one_term_per_residue():
@@ -273,3 +273,32 @@ def test_a_carried_equivalent_is_recorded_like_any_other_conversion():
     )
 
     assert backend.converted["ens_f01"] == (1.5, 0.75), backend.converted
+
+
+class TestScalarFieldRefusesAKeyItCannotMatch:
+    """The per-atom key is a pair — `(model, rank)` for atoms, `(chain, resi)`
+    for residues. The old, now-wrong contract was a 4-tuple
+    `(chain, resi, name, alt)`, and `per_atom`'s docstring spells out what
+    happens to a field built that way: it matches nothing, nothing raises, and
+    the structure is coloured by whatever the B-factor column already held under
+    a legend naming a quantity that was never drawn.
+
+    Documenting a silent-wrongness path is weaker than closing it, and the rest
+    of this dataclass closes its hazards — length mismatch and duplicate keys
+    both raise.
+    """
+
+    def test_the_old_four_part_key_is_refused(self):
+        with pytest.raises(ValueError, match="two parts"):
+            ScalarField.per_atom([(("A", "12", "CA", ""), 0.5)])
+
+    def test_a_pair_is_accepted(self):
+        field = ScalarField.per_atom([(("m", "1"), 0.5), (("m", "2"), 0.25)])
+        assert len(field) == 2
+
+    def test_per_residue_keys_are_checked_the_same_way(self):
+        with pytest.raises(ValueError, match="two parts"):
+            ScalarField.per_residue([(("A", "12", "CA"), 0.5)])
+
+    def test_an_empty_field_is_still_allowed(self):
+        assert len(ScalarField.per_atom([])) == 0

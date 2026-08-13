@@ -247,6 +247,23 @@ class ScalarField:
                 f"scalar field with a length mismatch would colour by an "
                 f"offset, which renders plausibly and is wrong"
             )
+        # Every key is a pair — (model, rank) for atoms, (chain, resi) for
+        # residues. The contract used to be a 4-tuple (chain, resi, name, alt),
+        # and a field still built that way matches nothing on the viewer side
+        # while raising nothing: `alter` becomes a no-op and the structure is
+        # coloured by whatever the B-factor column already held, over the new
+        # quantity's domain, under a legend naming a quantity never drawn.
+        # Documenting that was weaker than refusing it, and every other hazard
+        # in this dataclass is refused.
+        wrong = sorted({k for k in self.keys if len(k) != 2})
+        if wrong:
+            raise ValueError(
+                f"scalar field keys must have two parts — (model, rank) per "
+                f"atom, (chain, resi) per residue — but got "
+                f"{wrong[:3]}{' …' if len(wrong) > 3 else ''}. Build per-atom "
+                f"keys with `atom.key`; a key of any other shape matches no "
+                f"atom and colours the structure by the previous column instead."
+            )
         if len(set(self.keys)) != len(self.keys):
             # A backend lowers this to a lookup table, so a repeated key
             # silently keeps one value and hands it to every atom that shares
@@ -267,11 +284,12 @@ class ScalarField:
         """From ``[(atom.key, value), …]`` — that is, ``[((model, rank), v), …]``.
 
         Use :attr:`wiggles_em.atoms.Atom.key` rather than assembling the tuple.
-        A field keyed any other way matches nothing on the viewer side, and
-        nothing raises: the length and duplicate-key checks both pass, the
-        ``alter`` becomes a no-op, and the structure is coloured by whatever the
-        B-factor column already held — over the new quantity's domain, under a
-        legend naming a quantity that was never drawn.
+        A key of any other shape matches nothing on the viewer side: ``alter``
+        becomes a no-op and the structure is coloured by whatever the B-factor
+        column already held — over the new quantity's domain, under a legend
+        naming a quantity that was never drawn. A wrong-arity key is now
+        refused rather than merely documented, but a two-part key of the wrong
+        *kind* still cannot be caught here.
         """
         keys, values = zip(*pairs, strict=True) if pairs else ((), ())
         return cls(tuple(keys), tuple(float(v) for v in values), Granularity.ATOM)
