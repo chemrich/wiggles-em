@@ -272,7 +272,8 @@ def test_a_carried_equivalent_is_recorded_like_any_other_conversion():
         ])
     )
 
-    assert backend.converted["ens_f01"] == (1.5, 0.75), backend.converted
+    # Keyed by surface name, not volume — see TestConvertedIsKeyedTheWayItIsDocumented.
+    assert backend.converted["s"] == (1.5, 0.75), backend.converted
 
 
 class TestScalarFieldRefusesAKeyItCannotMatch:
@@ -349,3 +350,39 @@ class TestTheArityGuardSurvivesWhatItCatches:
         length check and be reported as a two-part key when it is one value."""
         with pytest.raises(ValueError, match="two parts"):
             ScalarField.per_atom([("m1", 0.5)])
+
+
+class TestConvertedIsKeyedTheWayItIsDocumented:
+    """`converted` is documented as "by surface name" and was written by volume.
+
+    Nothing in src/ reads it, so neither the key nor the claim was load-bearing
+    yet — which is exactly when a contract is cheapest to fix and easiest to
+    leave wrong. A host implementing the report layer against the docstring
+    would look up a key that is never written.
+    """
+
+    def test_the_key_is_the_surface_not_the_volume(self):
+        port = FakePort()
+        backend = PymolBackend(port, normalised=False)
+        backend.render(
+            Scene([Isosurface("surf_a", "vol", level=1.5, unit=Unit.SIGMA, equivalent=0.75)])
+        )
+
+        assert "surf_a" in backend.converted, backend.converted
+        assert "vol" not in backend.converted, backend.converted
+
+    def test_two_contours_of_one_volume_do_not_collide(self):
+        """The reason the surface is the right key: a volume can carry several
+        surfaces at different levels, and under a volume key the second silently
+        overwrites the first."""
+        port = FakePort()
+        backend = PymolBackend(port, normalised=False)
+        backend.render(
+            Scene([
+                Isosurface("low", "vol", level=1.0, unit=Unit.SIGMA, equivalent=0.5),
+                Isosurface("high", "vol", level=3.0, unit=Unit.SIGMA, equivalent=1.5),
+            ])
+        )
+
+        assert backend.converted["low"] == (1.0, 0.5)
+        assert backend.converted["high"] == (3.0, 1.5)

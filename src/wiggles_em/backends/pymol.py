@@ -254,9 +254,15 @@ class PymolBackend:
         #: is treated as normalised, because that is PyMOL's own default — but
         #: it is now an assertion the caller makes, not one made for them.
         self.normalised = normalised
-        #: Absolute levels this backend converted, by surface name. The report
-        #: layer reads these back so it can state both units without
-        #: recomputing a conversion that might disagree.
+        #: Levels this backend converted, keyed by **surface name** —
+        #: ``{surface: (as given, as sent)}``. Keyed by surface rather than by
+        #: volume because one volume routinely carries several surfaces at
+        #: different levels, and a volume key silently keeps only the last.
+        #:
+        #: Written for a report layer that states both units without recomputing
+        #: a conversion that might disagree. **Nothing in this package reads it
+        #: yet**, so the contract is stated here rather than demonstrated by a
+        #: caller — which is why it drifted from the code once already.
         self.converted: dict[str, tuple[float, float]] = {}
         #: Caveats that are true of PyMOL and of no other viewer. The host
         #: appends these to the view's report.
@@ -391,7 +397,12 @@ class PymolBackend:
     # -- volumes -----------------------------------------------------------
 
     def _level_for(
-        self, volume: str, level: float, unit: Unit, equivalent: float | None = None
+        self,
+        surface: str,
+        volume: str,
+        level: float,
+        unit: Unit,
+        equivalent: float | None = None,
     ) -> float:
         """The number PyMOL wants, converted against *this* map's header.
 
@@ -413,11 +424,10 @@ class PymolBackend:
         # nothing was drawn at all. Where the view could compute the equivalent
         # it carries it, and it is the only copy in existence.
         if equivalent is not None:
-            # Recorded like any other conversion. `self.converted` is what the
-            # report layer reads back to state both units without recomputing,
-            # and returning early skipped it — leaving nothing recorded for
-            # exactly the volumes this field was added to make renderable.
-            self.converted[volume] = (level, equivalent)
+            # Recorded like any other conversion. Returning early skipped it,
+            # leaving nothing recorded for exactly the surfaces this field was
+            # added to make renderable.
+            self.converted[surface] = (level, equivalent)
             return equivalent
 
         entry = loaded_map(volume, self.port)
@@ -434,11 +444,11 @@ class PymolBackend:
             if wanted is Unit.SIGMA
             else to_absolute(entry.header, level)
         )
-        self.converted[volume] = (level, converted)
+        self.converted[surface] = (level, converted)
         return converted
 
     def _isosurface(self, op: Isosurface) -> None:
-        level = self._level_for(op.volume, op.level, op.unit, op.equivalent)
+        level = self._level_for(op.name, op.volume, op.level, op.unit, op.equivalent)
         action = "isomesh" if op.style is Rep.MESH else "isosurface"
         if op.carve_around is not None:
             if op.carve_radius is None:
