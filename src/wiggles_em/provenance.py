@@ -159,11 +159,20 @@ def gather_evidence(header: MapHeader, path: str | Path | None = None) -> Eviden
         for token in tokens
         if token in haystack
     ]
-    # Two rules, and neither works alone. `_TOKENS` is declared
-    # most-cautionary-first, and that order is the point: NN_ENHANCED's warning
-    # ("treat this map as a hypothesis, not a measurement") is not
-    # interchangeable with SHARPENED's. Replacing the declaration-order break
-    # with longest-token-wins dropped it, so `postprocess_emready.mrc` — the
+    # Two rules, and neither works alone. Categories are ranked by SEVERITY —
+    # `Provenance`'s own order, read above — because the warnings are not
+    # interchangeable: NN_ENHANCED's "treat this map as a hypothesis, not a
+    # measurement" says something different from SHARPENED's, and GENERATED's
+    # "no particle was reconstructed into this density" is stronger than both.
+    #
+    # `_TOKENS`' declaration order is NOT consulted and must not be relied on:
+    # it lists NN_ENHANCED before GENERATED, which is not most-cautionary-first,
+    # and taking priority from it is what downgraded a cryoDRGN volume that had
+    # been run through EMReady. Reordering `_TOKENS` changes nothing;
+    # reordering `Provenance` changes classification.
+    #
+    # Replacing the declaration-order break with longest-token-wins dropped
+    # category priority entirely, so `postprocess_emready.mrc` — the
     # ordinary name for running EMReady on a RELION postprocess map — began
     # reporting SHARPENED, because 'postprocess' is longer than 'emready'.
     #
