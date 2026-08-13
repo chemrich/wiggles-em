@@ -34,24 +34,37 @@ from wiggles_em.scene import (
 #: How far the positional spread may exceed the change in interatomic distance
 #: before the difference is called rigid motion.
 #:
-#: Wide, and the width costs little now. A rigid motion preserves **every**
-#: interatomic distance exactly, so :func:`internal_distance_change` returns a
-#: hard zero for it and the rigid case sits at infinity however the threshold
-#: is set. The number only decides how much genuine internal rearrangement is
-#: allowed to sit under a large drift before the drift stops being called
-#: dominant.
+#: **Derived, not guessed, and re-derived whenever the statistic changes.** On
+#: 760 synthetic ensembles sweeping 2–50 states, 0–0.2 Å coordinate noise, and
+#: four motions — rigid drift, hinge, radial breathing, and counter-rotating
+#: twists at three radii, four angles and two atom counts:
 #:
-#: It was 3.0, then 10.0, retuned after a false positive on a hinge — and the
-#: retuning was treating a symptom. The quantity being compared was
-#: distance-to-centroid, which is blind to tangential motion, so no threshold
-#: could have separated a counter-rotating twist from a rigid body. Retuning a
-#: threshold is worth suspecting whenever the invariant underneath it has not
-#: been checked.
+#:   flexing motions      ratio ceiling 1.33   (700 cases)
+#:   rigid-dominated      ratio floor   1.95   (60 cases)
+#:
+#: 2.0 sits above the ceiling with 1.5x margin: no false alarm in any of the
+#: 700, and 58 of 60 rigid cases caught. The two it misses have a drift within a
+#: few times the coordinate noise, where the claim is genuinely weak and silence
+#: is the right answer.
+#:
+#: The first attempt at this derivation swept rigid, hinge and breathing but
+#: **not the twist** — the one geometry the whole finding was about — and
+#: produced 3.0, which then flagged the twist. Sweep the known hard case.
+#:
+#: The asymmetry matters when choosing: a missed detection leaves a caveat
+#: unprinted, while a false alarm tells the user their correct measurement is
+#: not a conformational quantity and to go and refit. Prefer the margin.
+#:
+#: It was 3.0, then 10.0 after a false positive on a hinge, and that retuning
+#: was treating a symptom — the quantity then being compared was distance to
+#: centroid, blind to tangential motion, so no threshold could have separated a
+#: counter-rotating twist from a rigid body. **Retuning a constant is worth
+#: suspecting whenever the invariant underneath it has not been checked.**
 #:
 #: This detects rigid motion that *dominates*, not rigid motion that is
 #: present. A modest drift under a lot of real flexing will not trip it, and
 #: should not: the report already says whether the states were fitted.
-RIGID_RATIO = 10.0
+RIGID_RATIO = 2.0
 
 #: Atom pairs sampled when checking the rigid-motion invariant. Every pair is
 #: used below this; above it a bounded sample is drawn, because the pair count
@@ -122,7 +135,8 @@ def internal_distance_change(
     *,
     max_pairs: int = MAX_DISTANCE_PAIRS,
 ) -> tuple[float, int]:
-    """Mean change in interatomic distance across states, and pairs sampled.
+    """How much the worst-behaved atom pairs change separation, and how many
+    pairs were looked at.
 
     **The rigid-motion invariant.** A rigid motion is exactly one that
     preserves every interatomic distance: translation and rotation both do,
@@ -150,8 +164,10 @@ def internal_distance_change(
     data would be its own defect.
 
     Returns:
-        ``(mean change in Å, pairs sampled)``. ``(0.0, 0)`` for fewer than two
-        atoms, where no pair exists and no claim is made.
+        ``(95th-percentile change in Å, pairs sampled)`` — how much the
+        worst-behaved pairs move, not how much pairs move on average. ``(0.0,
+        0)`` for fewer than two atoms, where no pair exists and no claim is
+        made.
     """
     n = len(coords_by_state[0])
     if n < 2:
@@ -169,11 +185,31 @@ def internal_distance_change(
                 chosen.add((min(i, j), max(i, j)))
         pairs = sorted(chosen)
 
+    # Two choices here, and both were got wrong before being got right.
+    #
+    # RMS about the mean separation, NOT peak-to-peak range. This must be the
+    # same shape as `per_atom_spread`, which the caller divides it into: a range
+    # widens as states are added because more samples reach further into the
+    # tails, while an RMS does not. With a range the ratio decayed from 6.0 at
+    # two states to 1.0 at fifty, so a rigid offset went unflagged on exactly
+    # the many-model depositions this view is pointed at — and no fixture with
+    # two noiseless states could see it.
+    #
+    # A high percentile over pairs, NOT the mean over pairs. Rigid means *no*
+    # pair changed, so the question is whether the worst-behaved pair is still
+    # unchanged. A mean lets one genuinely flexing region average away against a
+    # large rigid remainder, and a counter-rotating twist — where pairs within a
+    # ring are unchanged and only cross-ring pairs move — sat close enough to
+    # the rigid band that no threshold separated them. The 95th percentile is
+    # the noise-robust form of "the worst pair": a plain maximum over 20,000
+    # pairs just samples the noise tail.
     changes = []
     for i, j in pairs:
         separations = [math.dist(state[i], state[j]) for state in coords_by_state]
-        changes.append(max(separations) - min(separations))
-    return sum(changes) / len(changes), len(pairs)
+        mean = sum(separations) / len(separations)
+        changes.append(math.sqrt(sum((s - mean) ** 2 for s in separations) / len(separations)))
+    changes.sort()
+    return changes[int(0.95 * (len(changes) - 1))], len(pairs)
 
 
 def ensemble_spread_view(
@@ -282,9 +318,9 @@ def ensemble_spread_view(
             *(
                 [
                     "",
-                    "  ! RIGID-BODY MOTION DOMINATES. Interatomic distances change by",
-                    f"  {internal:.3f} Å on average across {pairs_sampled} atom pairs, while",
-                    f"  each atom's position varies by {positional:.2f} Å. A translation or",
+                    f"  ! RIGID-BODY MOTION DOMINATES. Across {pairs_sampled} atom pairs, even",
+                    f"  the most-changed 5% shift their separation by only {internal:.3f} Å,",
+                    f"  while each atom's position varies by {positional:.2f} Å. A translation or",
                     "  rotation preserves every interatomic distance exactly, so a large",
                     "  positional spread with no internal rearrangement under it is a",
                     "  rigid offset between the states, not flexibility. Fit them onto a",

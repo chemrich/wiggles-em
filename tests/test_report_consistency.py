@@ -348,6 +348,29 @@ def test_a_timeline_frame_shows_the_surface_its_number_names(label, views):
     )
 
 
+# ── check 4: nothing in a report is an unrendered placeholder ───────────────
+
+
+@pytest.mark.parametrize("label", VIEW_LABELS)
+def test_no_report_contains_an_unsubstituted_placeholder(label, views):
+    """A report is prose, and prose cannot fail a test — so a broken format
+    string reaches the user with the whole suite green.
+
+    This is not hypothetical: an edit to the rigid-motion warning left a literal
+    `{n}` in `ensemble_spread_view`'s output and 439 tests passed. Cheap to
+    check, and it covers every view at once.
+    """
+    report, _scene, _port = views[label]
+
+    leftovers = re.findall(r"\{[a-z_][a-z0-9_]*(?::[^}]*)?\}", report, re.IGNORECASE)
+
+    assert not leftovers, (
+        f"{label}'s report contains unrendered placeholder(s) {leftovers} — a "
+        f"format string that lost its f-prefix, or a .format() that was never "
+        f"applied."
+    )
+
+
 # ── the guard on this file ──────────────────────────────────────────────────
 
 

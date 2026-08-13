@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import random
+
 import pytest
-from conftest import draw, render
+from conftest import draw, make_atoms, render
 
 from wiggles_em.atoms import Atom
 from wiggles_em.bfactors import has_stash
@@ -355,3 +358,105 @@ def test_the_report_says_whether_the_states_were_fitted():
 
     assert "were superposed" in spread(coords, rows, superposed=True).report
     assert "NOT superposed" in spread(coords, rows, superposed=False).report
+
+
+# ── the rigid check, as a property rather than a fixture ────────────────────
+#
+# The statistic here was wrong once in a way no single fixture could see: it
+# returned a peak-to-peak RANGE while `positional` is an RMS about the mean.
+# A range widens as states are added and an RMS does not, so the ratio decayed
+# with ensemble size against a fixed threshold and the check quietly stopped
+# firing — on 20-state NMR ensembles and 50-state multi-model depositions, which
+# is most of what this view is pointed at. A noiseless two-state fixture passes
+# either way, and that is exactly what the original test used.
+#
+# So these sweep the parameters the calibration depends on: number of states,
+# and per-coordinate noise.
+
+
+def _ensemble(kind, *, n_atoms=60, n_states=2, noise=0.05, drift=1.0, flex=3.0, seed=3):
+    """A synthetic ensemble of a known kind.
+
+    ``rigid`` translates every atom together — no internal rearrangement at all.
+    ``hinge`` swings half the structure. ``breathe`` expands radially, which is
+    the case a distance-to-centroid check would see and a twist would not.
+    """
+    rng = random.Random(seed)
+    base = [
+        (rng.uniform(-20, 20), rng.uniform(-20, 20), rng.uniform(-20, 20)) for _ in range(n_atoms)
+    ]
+    states = []
+    for s in range(n_states):
+        f = s / max(1, n_states - 1)
+        frame = []
+        for k, (x, y, z) in enumerate(base):
+            if kind == "rigid":
+                dx, dy, dz = drift * f, 0.0, 0.0
+            elif kind == "hinge":
+                dx, dy, dz = (0.0, 0.0, 0.0) if k < n_atoms // 2 else (0.0, flex * f, 0.0)
+            else:
+                r = math.hypot(x, y) or 1.0
+                dx, dy, dz = x / r * flex * f, y / r * flex * f, 0.0
+            frame.append(
+                (x + dx + rng.gauss(0, noise), y + dy + rng.gauss(0, noise), z + dz + rng.gauss(0, noise))
+            )
+        states.append(frame)
+    return states
+
+
+ROWS_60 = [("A", str(i + 1), "ALA", "CA", "", 1.0, 20.0) for i in range(60)]
+
+
+@pytest.mark.parametrize("n_states", [2, 10, 50])
+@pytest.mark.parametrize("noise", [0.0, 0.01, 0.05])
+def test_a_rigid_drift_is_flagged_however_many_states_there_are(n_states, noise):
+    """The regression this file exists for.
+
+    A rigid offset must be caught whether the deposition has 2 models or 50.
+    The statistic must therefore be state-count invariant, which a range is not.
+    """
+    states = _ensemble("rigid", n_states=n_states, noise=noise, drift=1.0)
+    report, _ = ensemble_spread_view(make_atoms(ROWS_60), states, "obj", superposed=True)
+
+    assert "RIGID-BODY MOTION DOMINATES" in report, (
+        f"a 1 Å rigid drift over {n_states} states at noise {noise} was not "
+        f"flagged, so it is painted as flexibility at every residue"
+    )
+
+
+@pytest.mark.parametrize("kind", ["hinge", "breathe"])
+@pytest.mark.parametrize("n_states", [2, 10, 50])
+def test_a_flexing_ensemble_is_never_flagged(kind, n_states):
+    """The other half, and the deletion test's complement: a check that always
+    fires would satisfy the test above. A real conformational change must not be
+    reported as a rigid offset at any ensemble size."""
+    states = _ensemble(kind, n_states=n_states, noise=0.05, flex=3.0)
+    report, _ = ensemble_spread_view(make_atoms(ROWS_60), states, "obj", superposed=True)
+
+    assert "RIGID-BODY MOTION DOMINATES" not in report, (
+        f"a {kind} over {n_states} states was reported as rigid-body motion, "
+        f"telling the user to discard a correct measurement"
+    )
+
+
+def test_the_statistic_is_comparable_to_the_one_it_is_divided_by():
+    """`positional` is an RMS about the mean. Whatever the internal quantity is,
+    it has to be the same shape or the ratio means nothing — and the threshold
+    calibrated against it means less.
+
+    Asserted as stability rather than by inspecting the formula: for one fixed
+    motion, adding states must not move the ratio much. A range grows with the
+    number of samples; an RMS does not.
+    """
+    ratios = []
+    for n_states in (2, 10, 50):
+        states = _ensemble("hinge", n_states=n_states, noise=0.05)
+        positional = sum(per_atom_spread(states)) / len(states[0])
+        internal, _pairs = internal_distance_change(states)
+        ratios.append(positional / max(internal, 1e-12))
+
+    assert max(ratios) / min(ratios) < 1.5, (
+        f"the ratio moved by {max(ratios) / min(ratios):.2f}x as states were "
+        f"added ({[round(r, 2) for r in ratios]}), so the two quantities are "
+        f"not the same shape and no fixed threshold can hold"
+    )
