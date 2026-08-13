@@ -138,13 +138,6 @@ def gather_evidence(header: MapHeader, path: str | Path | None = None) -> Eviden
         )
 
     haystack = f"{name} {joined}".lower()
-    # Longest matching token wins, not the first in declaration order. These
-    # tokens are substrings of one another: 'sharp' occurs inside 'unsharp',
-    # and SHARPENED is declared first, so emd_1234_unsharpened.mrc was
-    # suggested as *sharpened* — inverting the one thing its depositor had
-    # taken the trouble to record. Sorting by length makes the more specific
-    # token win whatever order the table is written in; ties keep declaration
-    # order, since sorted() is stable.
     # Priority comes from the Provenance enum, which documents itself as
     # "ordered from observed to invented" — NOT from _TOKENS' declaration
     # order. Those are two structures encoding the same belief, and they
