@@ -179,11 +179,24 @@ def destroyed_note(obj: str) -> str:
     Says what is actually true rather than staying silent. The alternative —
     printing nothing — leaves a user who has seen a preservation note on an
     earlier view assuming the same guarantee holds here.
+
+    **The remedy has to be one the user can actually run.** An earlier version
+    said only "reload the object". Reloading does restore the column, but this
+    package never loads structures — only volumes, through :func:`load_map` and
+    :func:`load_ensemble` — so it cannot observe the reload, the destroyed mark
+    survives it, and the next view refuses to preserve a column that is now
+    genuinely the user's again. Following that advice left someone worse off
+    than ignoring it: they would believe the session was healthy while the
+    freshly reloaded crystallographic values were overwritten with nothing
+    saved. So the note names :func:`clear_stash`, which is what actually
+    clears the mark.
     """
     return (
         f"  WARNING: {obj}'s B-factor column was already overwritten by an "
         f"earlier view\n  that preserved nothing, so the original values are "
         f"gone from this session.\n  Nothing was saved, because what is in the "
-        f"column now is that view's output.\n  Reload {obj} to get the "
-        f"deposited values back."
+        f"column now is that view's output.\n  To recover: reload {obj}, then "
+        f"call clear_stash('{obj}') so a later\n  view can preserve it again — "
+        f"reloading alone does not tell this session\n  that the column is "
+        f"trustworthy."
     )

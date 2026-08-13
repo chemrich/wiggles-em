@@ -228,4 +228,68 @@ class TestADestroyedColumnIsNotStashed:
 
         assert "are held" in preserved and "restore_bfactors" in preserved
         assert "are held" not in destroyed and "restore_bfactors" not in destroyed
-        assert "gone" in destroyed and "Reload" in destroyed
+        # The claim, not its capitalisation: the values are gone, and there is
+        # a recovery route. Asserting the literal "Reload" made this fail when
+        # the remedy was corrected to name clear_stash as well.
+        assert "gone" in destroyed
+        assert "reload" in destroyed.lower() and "clear_stash" in destroyed
+
+
+class TestTheRemedyTheNotePrintsActuallyWorks:
+    """`destroyed_note` tells the user how to recover. If that instruction does
+    not restore the ability to preserve, the note is worse than silence: the
+    user follows it, believes the session is healthy, and the *reloaded*
+    crystallographic values are then overwritten with nothing saved.
+
+    This package never loads structures — only volumes, via `load_map` and
+    `load_ensemble` — so it cannot observe a reload and clear the mark itself.
+    The instruction therefore has to name something the user can actually run.
+    """
+
+    def _remedy_calls(self, note: str) -> list[str]:
+        """Function names the note tells the user to call."""
+        import re
+
+        return re.findall(r"\b([a-z_]+)\(", note)
+
+    def test_the_note_names_a_call_that_clears_the_mark(self):
+        mark_bfactors_destroyed("obj")
+        note = destroyed_note("obj")
+
+        named = self._remedy_calls(note)
+        assert named, f"the note gives no runnable remedy at all: {note}"
+
+        # Every function it names must exist and be importable from the package.
+        import wiggles_em
+
+        for name in named:
+            assert hasattr(wiggles_em, name), (
+                f"the note tells the user to call {name}(), which the package "
+                f"does not export"
+            )
+
+    def test_following_the_remedy_restores_the_ability_to_preserve(self):
+        """The end-to-end claim, not the wording."""
+        mark_bfactors_destroyed("obj")
+        assert stash_bfactors("obj", ATOMS) == 0, "precondition: stash refused"
+
+        # What the note tells the user to do.
+        clear_stash("obj")
+
+        assert not bfactors_destroyed("obj")
+        assert stash_bfactors("obj", ATOMS) == len(ATOMS), (
+            "after following the note's instruction the object still cannot be "
+            "preserved, so the remedy is inert"
+        )
+
+    def test_the_note_does_not_promise_a_reload_alone_is_enough(self):
+        """A reload restores the column but not this package's belief about it,
+        and the package has no way to notice — so 'reload' on its own is a
+        promise it cannot keep."""
+        note = destroyed_note("obj").lower()
+
+        if "reload" in note:
+            assert "clear_stash" in note, (
+                "the note tells the user to reload, which this package cannot "
+                f"observe, without naming the call that makes it true: {note}"
+            )
