@@ -61,8 +61,46 @@ ITERATE_TO_LIST = "iterate_to_list"
 #: to stub one of these has a hole in it, so FakePort raises. Everything else
 #: is a command whose result is ignored, and stubbing each one would be noise
 #: that hides the queries that matter.
+#:
+#: ``get`` is here because :func:`~wiggles_em.backends.pymol.normalisation_state`
+#: parses what it returns. It was missing, so an unstubbed ``get`` answered
+#: ``"OK"``, which parses to ``None`` — "PyMOL will not say" — and a test that
+#: forgot to stub it was indistinguishable from a session that genuinely could
+#: not answer.
 DATA_ACTIONS = frozenset(
-    {ITERATE_TO_LIST, "count_states", "get_coords", "get_names", "count_atoms"}
+    {ITERATE_TO_LIST, "count_states", "get_coords", "get_names", "count_atoms", "get"}
+)
+
+#: Actions Wiggles issues as *commands*: it does not read what they return, so
+#: a test need not stub them. This is an allowlist rather than "anything not in
+#: DATA_ACTIONS", which is the gap MCPymol's PR #58 found in its own live sweep
+#: — a fake that answers ``"OK"`` to everything cannot tell a real command from
+#: a typo or from an action the viewer would reject. Adding a new command means
+#: adding it here, which is the point: the addition is a decision, not a
+#: silence.
+COMMAND_ACTIONS = frozenset(
+    {
+        "alter",
+        "cartoon",
+        "color",
+        "delete",
+        "frame",
+        "hide",
+        "isomesh",
+        "isosurface",
+        "label",
+        "load",
+        "load_cgo",
+        "mdo",
+        "morph",
+        "mset",
+        "ramp_new",
+        "rebuild",
+        "set",
+        "set_color",
+        "show",
+        "spectrum",
+    }
 )
 
 
@@ -116,6 +154,14 @@ class FakePort:
     An unanticipated query raises :class:`KeyError` rather than returning
     ``None``, so a view asking for something the test did not set up fails
     loudly instead of silently rendering nothing.
+
+    An **unrecognised action** raises too. It used to answer ``"OK"`` to
+    anything outside :data:`DATA_ACTIONS`, which is the gap MCPymol's PR #58
+    found in its own live sweep: "the viewer accepted the signature and
+    rejected the argument's *meaning*" passed silently, and so would a typo in
+    an action name. A command is fire-and-forget only if it is on the
+    :data:`COMMAND_ACTIONS` allowlist; anything else is a bug in the caller or
+    a missing entry, and both should be loud.
     """
 
     def __init__(self, responses: dict[str, Any] | None = None) -> None:
@@ -137,7 +183,16 @@ class FakePort:
                 f"FakePort has no response for data action {action!r}, whose "
                 f"return value the caller uses. Known: {sorted(self.responses)}"
             )
-        return "OK"  # a command; its result is not consumed
+        if action not in COMMAND_ACTIONS:
+            raise KeyError(
+                f"FakePort does not recognise the action {action!r}. If it is a "
+                f"command whose result nothing reads, add it to COMMAND_ACTIONS "
+                f"in port.py; if its return value is used, add it to "
+                f"DATA_ACTIONS and stub it here. Answering 'OK' to anything is "
+                f"how a misspelled action, or one the viewer would reject, "
+                f"passes a whole suite."
+            )
+        return "OK"  # an allowlisted command; its result is not consumed
 
     # -- test conveniences -------------------------------------------------
 

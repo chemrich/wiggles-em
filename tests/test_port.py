@@ -16,6 +16,8 @@ import threading
 import pytest
 
 from wiggles_em.port import (
+    COMMAND_ACTIONS,
+    DATA_ACTIONS,
     BridgePort,
     FakePort,
     PortError,
@@ -25,6 +27,101 @@ from wiggles_em.port import (
 )
 
 # ── FakePort ────────────────────────────────────────────────────────────────
+
+
+class TestUnknownActionsAreRefused:
+    """FakePort used to answer "OK" to any action outside DATA_ACTIONS.
+
+    That is the gap MCPymol's PR #58 found in its own live sweep: a fake that
+    says yes to everything cannot tell a real command from a misspelled one,
+    nor from one the viewer would reject on the *meaning* of its arguments
+    rather than its signature. Every test in this package passes explicit
+    arguments through such a fake, so the blind spot covered the whole suite.
+    """
+
+    def test_an_allowlisted_command_is_still_fire_and_forget(self):
+        """Commands whose result nothing reads need no stub, or every test
+        would carry a wall of noise that hides the queries that matter."""
+        port = FakePort()
+
+        assert port.query("isosurface", "surf", "map", 1.0) == "OK"
+        assert port.query("delete", "obj") == "OK"
+
+    def test_a_misspelled_action_raises_rather_than_answering_ok(self):
+        """One character wrong is the case the old behaviour could not see."""
+        port = FakePort()
+
+        with pytest.raises(KeyError, match="does not recognise"):
+            port.query("isosurfce", "surf", "map", 1.0)
+
+    def test_an_action_nobody_declared_raises(self):
+        port = FakePort()
+
+        with pytest.raises(KeyError, match="does not recognise"):
+            port.query("reinitialize")
+
+    def test_a_data_action_without_a_stub_still_raises_its_own_error(self):
+        """The two failures are distinct: a missing stub is a hole in the
+        test, an unknown action is a bug in the caller."""
+        port = FakePort()
+
+        with pytest.raises(KeyError, match="no response for data action"):
+            port.query("count_states", "obj")
+
+    def test_get_is_a_data_action_because_its_answer_is_parsed(self):
+        """`normalisation_state` parses what `get` returns. While `get` was
+        absent from DATA_ACTIONS an unstubbed call answered "OK", which parses
+        to None — "PyMOL will not say" — so a test that forgot to stub it was
+        indistinguishable from a session that genuinely could not answer.
+        """
+        assert "get" in DATA_ACTIONS
+
+        with pytest.raises(KeyError, match="no response for data action"):
+            FakePort().query("get", "normalize_ccp4_maps")
+
+    def test_the_two_action_sets_do_not_overlap(self):
+        """An action in both would take the DATA_ACTIONS branch and the
+        allowlist entry would be a lie about what the caller does with it."""
+        assert not (DATA_ACTIONS & COMMAND_ACTIONS)
+
+    def test_a_stubbed_response_wins_over_both_sets(self):
+        """A test may stub a command to observe it, and that must keep
+        working — the allowlist decides what needs no stub, not what may
+        not have one."""
+        port = FakePort({"delete": "gone"})
+
+        assert port.query("delete", "obj") == "gone"
+
+
+def test_every_action_the_package_issues_is_declared():
+    """The allowlist is only a guard while it matches what the code calls.
+
+    Scans the source for `call(port, "...")` and `port.query("...")` and
+    requires each name to be declared. A new action added without a decision
+    about which set it belongs in fails here rather than silently answering
+    "OK" — which is the failure mode this whole mechanism exists to remove.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src" / "wiggles_em"
+    pattern = re.compile(
+        r'(?:call\(\s*(?:self\.)?port,\s*|(?:port|self\.port)\.query\(\s*)"([a-z_0-9]+)"'
+    )
+
+    found: dict[str, str] = {}
+    for path in src.rglob("*.py"):
+        if path.name == "port.py":
+            continue  # defines the sets; its own examples are not call sites
+        for name in pattern.findall(path.read_text()):
+            found.setdefault(name, str(path.relative_to(src)))
+
+    assert found, "the scan found no call sites at all, so it proves nothing"
+
+    undeclared = {n: where for n, where in found.items() if n not in DATA_ACTIONS | COMMAND_ACTIONS}
+    assert not undeclared, (
+        f"actions issued but not declared in DATA_ACTIONS or COMMAND_ACTIONS: {undeclared}"
+    )
 
 
 def test_both_ports_satisfy_the_protocol():
