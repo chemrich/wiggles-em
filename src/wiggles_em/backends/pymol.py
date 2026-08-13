@@ -553,7 +553,14 @@ class PymolBackend:
         # mdo commands run when a frame is *entered*. Without this the timeline
         # is built and never executed, so every isosurface stays enabled and
         # the traversal renders as one superimposed blob.
-        call(self.port, "frame", 1)
+        #
+        # The FIRST REAL frame, not frame 1. Frame 1 is a gap whenever frame 1's
+        # header carries no usable rms, and a gap frame disables everything — so
+        # hard-coding 1 ended a perfectly successful traversal on a blank
+        # viewport, under a report listing the surfaces it had just built. The
+        # old positional numbering always enabled the first surface; carrying
+        # real frame numbers took that away silently.
+        call(self.port, "frame", min(by_number))
 
     def _morph(self, op: Morph) -> None:
         try:

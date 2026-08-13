@@ -209,3 +209,35 @@ class TestFramesEdgeCases:
         """The length check is the one guard the rewrite did keep."""
         with pytest.raises(ValueError, match="frame names but"):
             Frames(("s_01", "s_02"), (1,), build_timeline=True)
+
+
+def test_the_timeline_lands_on_a_frame_that_shows_something():
+    """`frame 1` was hard-coded, but frame 1 is a gap whenever frame 1's header
+    has no usable rms — and a gap frame disables everything, so a successful
+    traversal ended up rendering blank under a report listing its surfaces.
+
+    The old positional numbering always enabled the first surface; carrying real
+    frame numbers broke that without anything noticing.
+    """
+    port = FakePort()
+    # Frame 1 skipped: surfaces are 2 and 3.
+    frames = Frames(("s_02", "s_03"), (2, 3), build_timeline=True)
+    PymolBackend(port, normalised=None).render(Scene([frames]))
+
+    (landed,), _ = port.calls("frame")[0]
+    commands = {args[0]: str(args[1]) for args, _ in port.calls("mdo")}
+
+    assert "enable" in commands[landed], (
+        f"the timeline lands on frame {landed}, whose command is "
+        f"{commands[landed]!r} — the session shows nothing at all"
+    )
+    assert landed == 2, f"should land on the first real frame, not {landed}"
+
+
+def test_the_timeline_still_lands_on_frame_one_when_frame_one_exists():
+    port = FakePort()
+    PymolBackend(port, normalised=None).render(
+        Scene([Frames(("s_01", "s_02"), (1, 2), build_timeline=True)])
+    )
+
+    assert port.calls("frame")[0][0] == (1,), port.call_log
