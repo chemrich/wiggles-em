@@ -425,17 +425,47 @@ def local_resolution_view(
         # have — converting it is exactly what the unusable rms just prevented.
         # The wording has to say so, or it reads as an instruction the user
         # cannot follow.
+        # A remedy that leads to another refusal is worse than no remedy: the
+        # user spends a reload to discover it changed nothing.
+        #
+        # Flipping normalisation ON makes the contour need no conversion — but
+        # it makes the BREAKPOINTS need one, against the resolution map's
+        # header. A local-resolution map and its density map normally come out
+        # of the same pipeline, so if `main` lacks statistics `res` usually does
+        # too, and the second refusal says to turn it back off. The two remedies
+        # then point at each other.
+        reload_works = needed_unit is not Unit.ABSOLUTE or usable_rms(res.header)
         flip = "on" if needed_unit is Unit.ABSOLUTE else "off"
         keeps = "sigma" if needed_unit is Unit.ABSOLUTE else "absolute"
         # "a sigma" but "an absolute" — the article follows the unit name, and
         # templating it as a bare "a" produced "a absolute level".
         article = "an" if needed_unit.value[0] in "aeiou" else "a"
-        remedies = [
-            f"  Reload the map with normalisation {flip} "
-            f"(`set normalize_ccp4_maps, {flip}`",
-            f"  before loading): {'a' if keeps == 'sigma' else 'an'} {keeps} level then "
-            f"needs no conversion",
-            "  at all, which keeps the level you asked for.",
+        remedies = []
+        if reload_works:
+            remedies += [
+                f"  Reload the map with normalisation {flip} "
+                f"(`set normalize_ccp4_maps, {flip}`",
+                f"  before loading): {'a' if keeps == 'sigma' else 'an'} {keeps} level then "
+                f"needs no conversion",
+                "  at all, which keeps the level you asked for.",
+            ]
+            if normalised is None:
+                # The host could not read the setting, and after a reload it
+                # still cannot — it passes None again, this code still assumes
+                # ON, and the refusal returns byte-for-byte. The reload only
+                # helps if the call is told what the session now is.
+                remedies += [
+                    "  Pass normalised=False to this call as well: the setting could",
+                    "  not be read, so reloading alone changes nothing here.",
+                ]
+        else:
+            remedies += [
+                f"  Reloading with normalisation on would not help: {res_obj}'s header",
+                f"  reports rms={res.header.rms:g} too, so the ramp breakpoints could not",
+                "  be converted either. Repair the statistics on both maps, or work in",
+                "  absolute values throughout.",
+            ]
+        remedies += [
             f"  Or choose {article} {needed_unit.value} level of your own and pass it",
             f"  with units='{needed_unit.value}'. Note that is a new value, not a",
             "  conversion of the one above — converting it is what just failed.",

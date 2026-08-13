@@ -377,3 +377,33 @@ class TestTheBackendNoteMatchesWhatIsActuallyHeld:
         assert not has_stash("m3")
         assert "not preserved" in "\n".join(backend.notes)
         assert bfactors_destroyed("m3")
+
+
+def test_a_view_that_stashes_twice_says_so_once():
+    """`deformation_view` and `ensemble_spread_view` both emit ColorByScalar
+    AND SizeByScalar against the same object, so `_stash` runs twice per
+    render. Once the held-stash path started appending a note (I4), that became
+    the same sentence printed twice.
+
+    Existing tests use substring checks over the joined notes, so none of them
+    could see a duplicate."""
+    import sys
+
+    sys.path.insert(0, "tests")
+    from conftest import make_atoms, render
+
+    from wiggles_em.deformation import deformation_view
+
+    rows = [("A", str(i), "ALA", "CA", "", 1.0, 20.0) for i in range(1, 5)]
+    start = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (3.0, 0.0, 0.0)]
+    end = [(0.5, 0.0, 0.0), (1.5, 0.0, 0.0), (2.5, 0.0, 0.0), (3.5, 0.0, 0.0)]
+
+    drawn = render(
+        deformation_view(
+            make_atoms(rows), start, end, "obj", 2, start_state=1, end_state=2, as_putty=True
+        ),
+        rows,
+    )
+
+    preservation = [n for n in drawn.pymol.notes if "values are held" in n]
+    assert len(preservation) == 1, f"note repeated {len(preservation)}x: {preservation}"

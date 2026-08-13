@@ -795,3 +795,65 @@ class TestEveryRefusalOffersATakeableRemedy:
             report, scene = local_resolution_view("main", "res", **kwargs)
             assert "REFUSED" not in report, report
             PymolBackend(port, normalised=kwargs.get("normalised")).render(scene)
+
+
+class TestFollowingTheRemedyLeavesTheUserBetterOff:
+    """The rule this class sharpens: "execute every remedy a message names" was
+    satisfied by checking the remedy *runs*. It never checked it *resolves the
+    situation*, and two of these did not.
+
+    A remedy that leads to a second refusal, or to a byte-identical one, is
+    worse than no remedy — the user spends a reload discovering it changed
+    nothing.
+    """
+
+    def _maps(self, tmp_path, main_rms=-1.0, res_rms=-1.0):
+        main = write_map(tmp_path, f"main{main_rms}.mrc", rms=main_rms)
+        res = write_map(tmp_path, f"res{res_rms}.mrc", rms=res_rms)
+        port = FakePort({"get_names": ["main", "res"], "iterate_to_list": []})
+        load_map(port, main, "main", provenance=Provenance.MEASURED)
+        load_map(port, res, "res", provenance=Provenance.MEASURED)
+        return port
+
+    def test_the_reload_remedy_does_not_lead_to_another_refusal(self, tmp_path):
+        """Both headers carry rms=-1, which is the normal case: a local
+        resolution map and its density map come out of the same pipeline, so if
+        one lacks statistics the other usually does too.
+
+        Turning normalisation on then makes the *breakpoints* need a usable rms
+        on the resolution map, and the second refusal says to turn it back off.
+        The two remedies point at each other."""
+        self._maps(tmp_path, main_rms=-1.0, res_rms=-1.0)
+        first = local_resolution_view("main", "res", normalised=False, level=2.0, units="sigma")[0]
+
+        if "normalize_ccp4_maps, on" in first:
+            self._maps(tmp_path, main_rms=-1.0, res_rms=-1.0)
+            second = local_resolution_view(
+                "main", "res", normalised=True, level=2.0, units="sigma"
+            )[0]
+            assert "REFUSED" not in second, (
+                "the refusal told the user to reload with normalisation on, and "
+                f"doing so refuses again:\n{second}"
+            )
+
+    def test_the_reload_remedy_is_still_offered_when_it_would_work(self, tmp_path):
+        """The resolution map having usable statistics is what makes flipping
+        the setting a real way out. That case must keep the remedy."""
+        self._maps(tmp_path, main_rms=-1.0, res_rms=0.5)
+        report = local_resolution_view("main", "res", normalised=False, level=2.0, units="sigma")[0]
+
+        assert "normalize_ccp4_maps, on" in report, report
+
+    def test_an_unreadable_setting_is_told_the_reload_alone_changes_nothing(self, tmp_path):
+        """`normalised=None` means the host could not read the setting. After
+        reloading, it still cannot — so it passes None again, the code still
+        assumes ON, and the refusal returns byte-for-byte. The message has to
+        say the call itself must be told."""
+        self._maps(tmp_path, main_rms=-1.0, res_rms=0.5)
+        report = local_resolution_view(
+            "main", "res", normalised=None, level=0.05, units="absolute"
+        )[0]
+
+        assert "normalised=False" in report, (
+            f"reloading alone cannot change this session's behaviour:\n{report}"
+        )

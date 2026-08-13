@@ -265,6 +265,10 @@ class PymolBackend:
         #: yet**, so the contract is stated here rather than demonstrated by a
         #: caller — which is why it drifted from the code once already.
         self.converted: dict[str, tuple[float, float]] = {}
+        #: Objects this render has already spoken about, so a view emitting
+        #: two scalar ops against one object (ColorByScalar + SizeByScalar,
+        #: which is every putty view) says it once rather than twice.
+        self._noted: set[str] = set()
         #: Caveats that are true of PyMOL and of no other viewer. The host
         #: appends these to the view's report.
         #:
@@ -309,6 +313,13 @@ class PymolBackend:
             key_expr = "'|'.join((chain, resi))"
         return f"b={_STORED}.get({key_expr}, b)"
 
+    def _note_once(self, obj: str, note: str) -> None:
+        """Append a B-factor note for ``obj``, at most once per render."""
+        if obj in self._noted:
+            return
+        self._noted.add(obj)
+        self.notes.append(note)
+
     def _stash(self, sel: Sel) -> None:
         """Save B-factors before overwriting them, once per object.
 
@@ -330,21 +341,21 @@ class PymolBackend:
         # Same ordering `stash_bfactors` gets right; this is the second place
         # that had to, and it was missed when the first was fixed.
         if has_stash(str(obj)):
-            self.notes.append(preservation_note(str(obj), stashed_count(str(obj))))
+            self._note_once(str(obj), preservation_note(str(obj), stashed_count(str(obj))))
             return
         if not self.preserve_bfactors:
             # Record the loss, or the next view stashes this view's scalar as
             # though it were the user's data and restore_bfactors writes it
             # back reporting success.
             mark_bfactors_destroyed(str(obj))
-            self.notes.append("  WARNING: B-factors overwritten and not preserved.")
+            self._note_once(str(obj), "  WARNING: B-factors overwritten and not preserved.")
             return
         if bfactors_destroyed(str(obj)):
-            self.notes.append(destroyed_note(str(obj)))
+            self._note_once(str(obj), destroyed_note(str(obj)))
             return
         atoms = fetch_atoms(self.port, str(obj))
         stashed = stash_bfactors(str(obj), atoms)
-        self.notes.append(preservation_note(str(obj), stashed))
+        self._note_once(str(obj), preservation_note(str(obj), stashed))
 
     def _colorbyscalar(self, op: ColorByScalar) -> None:
         sel = render_selection(op.sel)
