@@ -12,6 +12,8 @@ breakpoint in Å converts to sigma by subtracting 4 — 2 Å is -2 sigma, 6 Å i
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from conftest import render
 from test_mapinfo import write_map
@@ -719,3 +721,77 @@ class TestTheRefusalDescribesTheSituationTheUserIsIn:
 
         assert "OFF" in report, report
         assert "assumed" not in report, report
+
+
+class TestEveryRefusalOffersATakeableRemedy:
+    """Four situations reach this refusal, and the remedy must work in all of
+    them — not just the one a review happened to name.
+
+    Two remedies exist. Restating the level in the other unit means *choosing a
+    new value*, because converting the one they have is precisely what failed;
+    the message has to say so. Reloading with the normalisation setting flipped
+    makes their existing level need no conversion at all, and is the only one
+    that preserves what they asked for.
+    """
+
+    def _maps(self, tmp_path, main_rms=-1.0):
+        main = write_map(tmp_path, "main.mrc", rms=main_rms)
+        res = write_map(tmp_path, "res.mrc", rms=0.5)
+        port = FakePort({"get_names": ["main", "res"], "iterate_to_list": []})
+        load_map(port, main, "main", provenance=Provenance.MEASURED)
+        load_map(port, res, "res", provenance=Provenance.MEASURED)
+        return port
+
+    #: The four situations that reach the refusal. A tuple, not a list: ruff
+    #: rightly refuses a mutable class attribute, and these are fixtures rather
+    #: than something a test should be able to append to.
+    CASES: ClassVar[tuple[tuple[str, dict], ...]] = (
+        ("defaulted sigma, normalisation off", dict(normalised=False)),
+        ("explicit sigma, normalisation off", dict(normalised=False, level=2.0, units="sigma")),
+        ("explicit absolute, normalisation on", dict(normalised=True, level=0.05, units="absolute")),
+        ("explicit absolute, setting unknown", dict(normalised=None, level=0.05, units="absolute")),
+    )
+
+    @pytest.mark.parametrize("label,kwargs", CASES, ids=[c[0] for c in CASES])
+    def test_the_reload_remedy_is_offered(self, tmp_path, label, kwargs):
+        """The only remedy that keeps the level the user chose. It was offered
+        on the defaulted path alone, so three of four situations were told only
+        to restate a value they cannot compute."""
+        self._maps(tmp_path)
+        report, _ = local_resolution_view("main", "res", **kwargs)
+
+        assert "REFUSED" in report, report
+        assert "normalize_ccp4_maps" in report and "Reload" in report, (
+            f"{label}: no reload remedy offered:\n{report}"
+        )
+
+    @pytest.mark.parametrize("label,kwargs", CASES, ids=[c[0] for c in CASES])
+    def test_restating_is_described_as_choosing_a_new_value(self, tmp_path, label, kwargs):
+        """"Pass the level with units='absolute' instead" reads as restating
+        the same level in other units. That is the one thing the unusable rms
+        makes impossible."""
+        self._maps(tmp_path)
+        report, _ = local_resolution_view("main", "res", **kwargs)
+
+        assert "of your own" in report, (
+            f"{label}: the message implies converting the level they have:\n{report}"
+        )
+
+    @pytest.mark.parametrize("label,kwargs", CASES, ids=[c[0] for c in CASES])
+    def test_the_reload_direction_matches_the_session(self, tmp_path, label, kwargs):
+        """Reloading is only a remedy in the direction that makes their unit the
+        one the session contours in."""
+        self._maps(tmp_path)
+        report, _ = local_resolution_view("main", "res", **kwargs)
+
+        wanted_on = kwargs.get("normalised") is False
+        assert (", on" in report) == wanted_on, (
+            f"{label}: wrong reload direction offered:\n{report}"
+        )
+
+    def test_a_usable_rms_still_refuses_nothing(self, tmp_path):
+        port = self._maps(tmp_path, main_rms=0.5)
+        for _label, kwargs in self.CASES:
+            report, scene = local_resolution_view("main", "res", **kwargs)
+            assert "REFUSED" not in report, report
+            PymolBackend(port, normalised=kwargs.get("normalised")).render(scene)

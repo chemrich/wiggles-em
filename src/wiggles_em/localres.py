@@ -412,23 +412,36 @@ def local_resolution_view(
             else "  PyMOL would not report normalize_ccp4_maps, so its default (ON) was\n"
             "  assumed, and that is what decides the unit."
         )
-        # Remedies, most actionable first for the case at hand. A defaulted
-        # sigma level has no absolute value the user could supply — computing
-        # it is the thing that just failed — so for that case the only real way
-        # out is to stop needing the conversion at all.
-        remedies = []
-        if used_default and needed_unit is Unit.ABSOLUTE:
-            remedies += [
-                "  Reload the map with normalisation on (`set normalize_ccp4_maps, on`",
-                "  before loading): a sigma level then needs no conversion at all.",
-                "  Or pass an absolute level of your own with units='absolute' — an",
-                "  EMDB author-recommended contour, for instance.",
-            ]
-        else:
-            remedies += [
-                f"  Pass the level with units='{needed_unit.value}' instead — this session",
-                f"  contours in {needed_unit.value}, so no conversion is needed.",
-            ]
+        # Two remedies, and both are offered in every case. Gating the first on
+        # `used_default` left three of the four situations with only the second,
+        # which is the weaker one.
+        #
+        # Reloading with the setting flipped is the only remedy that keeps the
+        # level the caller chose: it makes their unit the one this session
+        # contours in, so nothing needs converting. The direction depends on
+        # what the session needs, not on what they passed.
+        #
+        # Restating means CHOOSING A NEW VALUE, not converting the one they
+        # have — converting it is exactly what the unusable rms just prevented.
+        # The wording has to say so, or it reads as an instruction the user
+        # cannot follow.
+        flip = "on" if needed_unit is Unit.ABSOLUTE else "off"
+        keeps = "sigma" if needed_unit is Unit.ABSOLUTE else "absolute"
+        # "a sigma" but "an absolute" — the article follows the unit name, and
+        # templating it as a bare "a" produced "a absolute level".
+        article = "an" if needed_unit.value[0] in "aeiou" else "a"
+        remedies = [
+            f"  Reload the map with normalisation {flip} "
+            f"(`set normalize_ccp4_maps, {flip}`",
+            f"  before loading): {'a' if keeps == 'sigma' else 'an'} {keeps} level then "
+            f"needs no conversion",
+            "  at all, which keeps the level you asked for.",
+            f"  Or choose {article} {needed_unit.value} level of your own and pass it",
+            f"  with units='{needed_unit.value}'. Note that is a new value, not a",
+            "  conversion of the one above — converting it is what just failed.",
+        ]
+        if needed_unit is Unit.ABSOLUTE:
+            remedies.append("  An EMDB author-recommended contour is one source of such a value.")
         return "\n".join(
             [
                 f"local_resolution_view({map_obj} by {res_obj})",
