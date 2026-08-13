@@ -241,3 +241,19 @@ def test_the_timeline_still_lands_on_frame_one_when_frame_one_exists():
     )
 
     assert port.calls("frame")[0][0] == (1,), port.call_log
+
+
+def test_duplicate_frame_numbers_are_refused():
+    """`_frames` builds dict(zip(numbers, names)), so a repeated number silently
+    keeps one surface and drops the other — it is then never enabled on any
+    frame, and nothing looks wrong. `ScalarField` already refuses duplicate
+    keys for exactly this reason."""
+    with pytest.raises(ValueError, match="duplicate"):
+        Frames(("s_01", "s_02"), (1, 1), build_timeline=True)
+
+
+def test_frame_numbers_below_one_are_refused():
+    """The timeline runs 1..max, so a number of 0 or less is dropped without
+    trace — a surface silently absent from a movie that claims to hold it."""
+    with pytest.raises(ValueError, match="1 or greater"):
+        Frames(("s_00",), (0,), build_timeline=True)

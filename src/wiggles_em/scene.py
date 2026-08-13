@@ -514,6 +514,26 @@ class Frames(SceneOp):
                 f"{len(self.names)} frame names but {len(self.numbers)} numbers — "
                 f"a timeline built from these would step to the wrong density"
             )
+        # A backend lowers this to a number -> name mapping, so a repeated
+        # number keeps one surface and drops the other, which is then never
+        # enabled on any frame. Same silent-drop the ScalarField key check
+        # exists for, and the same remedy: refuse rather than render.
+        if len(set(self.numbers)) != len(self.numbers):
+            seen: set[int] = set()
+            clashes = sorted({n for n in self.numbers if n in seen or seen.add(n)})  # type: ignore[func-returns-value]
+            raise ValueError(
+                f"duplicate frame numbers {clashes} — each surface must hold a "
+                f"different frame, or one of them is silently never shown"
+            )
+        # The timeline runs 1..max, so anything below 1 falls outside it and
+        # vanishes without trace.
+        below = sorted(n for n in self.numbers if n < 1)
+        if below:
+            raise ValueError(
+                f"frame numbers {below} are below 1, and a timeline is numbered "
+                f"from 1 — those surfaces would never appear. Frame numbers must "
+                f"be 1 or greater."
+            )
 
 
 @dataclass(frozen=True)
