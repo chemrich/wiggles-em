@@ -444,7 +444,6 @@ def test_8_the_latent_report_names_the_frame_the_contour_was_actually_taken_agai
 # ── #9 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #9 not fixed yet")
 def test_9_a_counter_rotating_twist_is_not_reported_as_rigid_body_motion():
     """REVIEW #9, src/wiggles_em/ensembles.py:195.
 
@@ -478,8 +477,24 @@ def test_9_a_counter_rotating_twist_is_not_reported_as_rigid_body_motion():
 
     report, _scene = ensemble_spread_view(make_atoms(rows), [start, end], "obj", superposed=True)
 
-    assert "RIGID" not in report.upper(), (
+    # The warning itself, not the word "rigid" — the colour scale is legitimately
+    # described as running "blue (rigid) → red", and asserting on the bare word
+    # flagged that correct line.
+    assert "RIGID-BODY MOTION DOMINATES" not in report, (
         "a counter-rotating twist — a real conformational change — was "
         "reported as rigid-body motion, telling the user to discard a correct "
         f"measurement. Report:\n{report}"
+    )
+
+    # And the detector must still detect. Removing it would satisfy the
+    # assertion above, so the property worth keeping is asserted alongside:
+    # the same atoms, translated bodily, are still caught.
+    shifted = [(x + 7.0, y, z) for x, y, z in start]
+    rigid_report, _ = ensemble_spread_view(
+        make_atoms(rows), [start, shifted], "obj", superposed=True
+    )
+
+    assert "RIGID-BODY MOTION DOMINATES" in rigid_report, (
+        "a pure translation is rigid motion by definition and must still be "
+        f"caught, or the fix was to delete the check. Report:\n{rigid_report}"
     )

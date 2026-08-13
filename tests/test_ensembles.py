@@ -10,10 +10,10 @@ from wiggles_em.bfactors import has_stash
 from wiggles_em.ensembles import (
     SPREAD_LEGEND,
     ensemble_spread_view,
+    internal_distance_change,
     morph_states,
     per_atom_spread,
     per_residue_spread,
-    radial_spread,
 )
 from wiggles_em.port import FakePort, PortError
 from wiggles_em.scene import ColorByScalar, Morph, SizeByScalar
@@ -269,9 +269,10 @@ def test_a_genuinely_flexible_ensemble_is_not_flagged():
     assert "RIGID-BODY" not in d.report, d.report
 
 
-def test_the_threshold_separates_a_hinge_from_a_drift():
-    """Why RIGID_RATIO is wide: an asymmetric conformational change moves the
-    centroid, so positional spread exceeds radial spread on its own."""
+def test_the_invariant_separates_a_hinge_from_a_drift():
+    """A rigid motion preserves every interatomic distance exactly, so the
+    rigid case sits at zero and separates by an unbounded margin rather than a
+    tuned one."""
     hinge = [
         [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)],
         [(0.0, 0.0, 0.0), (5.0, 3.0, 0.0)],
@@ -280,10 +281,70 @@ def test_the_threshold_separates_a_hinge_from_a_drift():
         [(0.0, 0.0, 0.0), (5.0, 0.0, 0.0)],
         [(9.0, 0.0, 0.0), (14.0, 0.0, 0.0)],
     ]
-    # A truly rigid pair has a radial spread of exactly zero, so it separates
-    # from a hinge by an unbounded margin rather than a tuned one.
-    assert max(radial_spread(rigid)) == pytest.approx(0.0)
-    assert max(radial_spread(hinge)) > 0.0
+    assert internal_distance_change(rigid)[0] == pytest.approx(0.0)
+    assert internal_distance_change(hinge)[0] > 0.0
+
+
+def test_the_invariant_sees_motion_the_radial_one_was_blind_to():
+    """The whole reason for the replacement. `radial_spread` measured distance
+    to the centroid, which a counter-rotating twist leaves exactly unchanged —
+    so it scored zero on a genuine conformational change and the detector fired
+    on a correct measurement whatever the threshold.
+
+    Two atoms on opposite sides of a ring, rotating in opposite directions:
+    every atom keeps its radius, and their separation does not.
+    """
+    import math
+
+    r = 5.0
+    twist = math.radians(25.0)
+    # Atom A sits at angle 0 and turns +twist; atom B sits at angle pi and
+    # turns -twist. Rotating both the SAME way would be a rigid rotation of the
+    # pair and would correctly score zero, which is what a first draft of this
+    # test built by mistake.
+    before = [(r, 0.0, 1.0), (r * math.cos(math.pi), r * math.sin(math.pi), -1.0)]
+    after = [
+        (r * math.cos(twist), r * math.sin(twist), 1.0),
+        (r * math.cos(math.pi - twist), r * math.sin(math.pi - twist), -1.0),
+    ]
+    # Every radius is unchanged — that is exactly what the old check measured,
+    # and why it read this as rigid.
+    for old, new in zip(before, after, strict=True):
+        assert math.hypot(*old[:2]) == pytest.approx(math.hypot(*new[:2]))
+    # The separation is not, which is what makes it a real conformational change.
+    assert internal_distance_change([before, after])[0] > 0.0
+
+
+def test_the_sample_is_stable_across_runs():
+    """A sampled figure that moved between runs on identical data would be
+    indistinguishable from a real change in the data."""
+    states = [
+        [(float(i), 0.0, 0.0) for i in range(60)],
+        [(float(i) * 1.01, 0.5, 0.0) for i in range(60)],
+    ]
+    first = internal_distance_change(states, max_pairs=50)
+    second = internal_distance_change(states, max_pairs=50)
+
+    assert first == second
+    assert first[1] == 50, "the cap was not applied"
+
+
+def test_every_pair_is_used_when_there_are_few_enough():
+    """Sampling is a concession to cost, not the design — a small ensemble is
+    checked exhaustively and the report says so."""
+    states = [
+        [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0)],
+        [(0.0, 0.0, 0.0), (1.0, 0.5, 0.0), (2.0, 0.0, 0.0)],
+    ]
+    _change, pairs = internal_distance_change(states)
+
+    assert pairs == 3, "3 atoms have 3 pairs; all should have been used"
+
+
+def test_a_single_atom_makes_no_claim():
+    """No pair exists, so there is nothing to say — and saying zero would read
+    as 'perfectly rigid'."""
+    assert internal_distance_change([[(0.0, 0.0, 0.0)], [(9.0, 0.0, 0.0)]]) == (0.0, 0)
 
 
 def test_the_report_says_whether_the_states_were_fitted():

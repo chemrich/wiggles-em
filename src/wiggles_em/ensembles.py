@@ -16,6 +16,7 @@ dependency-free is worth more than the vectorisation.
 from __future__ import annotations
 
 import math
+import random
 
 from wiggles_em.atoms import Atom
 from wiggles_em.port import PortError
@@ -30,21 +31,38 @@ from wiggles_em.scene import (
     SizeByScalar,
 )
 
-#: How far the positional spread may exceed the rigid-invariant radial spread
+#: How far the positional spread may exceed the change in interatomic distance
 #: before the difference is called rigid motion.
 #:
-#: High, and the reason is worth keeping. A first attempt at 3.0 fired on a
-#: genuine hinge: any *asymmetric* conformational change moves the centroid,
-#: so the positional spread picks up that shift on its own and runs a few
-#: times the radial figure without a gram of rigid-body motion. Truly rigid
-#: states have a radial spread of exactly zero — translation and rotation both
-#: leave every atom's distance to its own centroid untouched — so the rigid
-#: case sits at infinity and a wide threshold separates the two cleanly.
+#: Wide, and the width costs little now. A rigid motion preserves **every**
+#: interatomic distance exactly, so :func:`internal_distance_change` returns a
+#: hard zero for it and the rigid case sits at infinity however the threshold
+#: is set. The number only decides how much genuine internal rearrangement is
+#: allowed to sit under a large drift before the drift stops being called
+#: dominant.
+#:
+#: It was 3.0, then 10.0, retuned after a false positive on a hinge — and the
+#: retuning was treating a symptom. The quantity being compared was
+#: distance-to-centroid, which is blind to tangential motion, so no threshold
+#: could have separated a counter-rotating twist from a rigid body. Retuning a
+#: threshold is worth suspecting whenever the invariant underneath it has not
+#: been checked.
 #:
 #: This detects rigid motion that *dominates*, not rigid motion that is
 #: present. A modest drift under a lot of real flexing will not trip it, and
 #: should not: the report already says whether the states were fitted.
 RIGID_RATIO = 10.0
+
+#: Atom pairs sampled when checking the rigid-motion invariant. Every pair is
+#: used below this; above it a bounded sample is drawn, because the pair count
+#: is quadratic and a 20,000-atom complex has 200 million pairs. The report
+#: states how many were actually looked at.
+MAX_DISTANCE_PAIRS = 20_000
+
+#: Fixed, so the same ensemble yields the same report every time. A sampled
+#: figure that drifted between runs on identical data would be indistinguishable
+#: from a real change in the data.
+_SAMPLE_SEED = 20260813
 
 SPREAD_LEGEND = (
     "Spread is the RMS deviation of each atom's position across states. It is a "
@@ -99,32 +117,63 @@ def per_residue_spread(atoms: list[Atom], atom_spread: list[float]) -> dict[tupl
     return {key: sum(v) / len(v) for key, v in acc.items()}
 
 
-def radial_spread(coords_by_state: list[list[tuple[float, float, float]]]) -> list[float]:
-    """Per-atom spread of the distance to that state's own centroid.
+def internal_distance_change(
+    coords_by_state: list[list[tuple[float, float, float]]],
+    *,
+    max_pairs: int = MAX_DISTANCE_PAIRS,
+) -> tuple[float, int]:
+    """Mean change in interatomic distance across states, and pairs sampled.
 
-    Invariant under both translation and rotation, which is what makes it a
-    check on :func:`per_atom_spread` rather than another version of it. An
-    internally rigid molecule tumbling across its box has a large positional
-    spread and a radial spread of zero; a genuinely flexing one has both.
+    **The rigid-motion invariant.** A rigid motion is exactly one that
+    preserves every interatomic distance: translation and rotation both do,
+    and nothing else does. So if no pair's separation changes, the motion is
+    entirely rigid — not "probably", exactly. Any internal rearrangement, of
+    any kind, changes some distance.
 
-    It is deliberately *not* offered as a flexibility measure: it is blind to
-    tangential motion, so a residue swinging around the centre at constant
-    radius scores zero. It answers one question — is the positional number
-    dominated by rigid motion — and nothing else.
+    This replaces ``radial_spread``, which measured each atom's distance to its
+    own state's centroid. That is invariant under translation and rotation too,
+    so it looked equivalent, but it is **blind to tangential motion**: for a
+    counter-rotating twist — the ratchet and F1-ATPase class of genuine
+    conformational change — every atom keeps its radius and the number is
+    *exactly zero*. The detector then fired on a correct measurement whatever
+    the threshold, telling the user to refit already-fitted states and discard
+    the result. No amount of tuning reaches that case; the quantity was wrong.
+
+    Cost is O(N²) in pairs, so above ``max_pairs`` a bounded sample is taken
+    instead of every pair. That makes it a heuristic again — but one sampling a
+    quantity that is exactly zero for rigid motion, rather than one that is
+    exactly zero for a whole class of non-rigid motion. The count is returned
+    so the report can state it.
+
+    The sample is drawn from a **fixed seed**: the same ensemble must produce
+    the same report twice, and a figure that moved between runs on identical
+    data would be its own defect.
+
+    Returns:
+        ``(mean change in Å, pairs sampled)``. ``(0.0, 0)`` for fewer than two
+        atoms, where no pair exists and no claim is made.
     """
-    radii_by_state = []
-    for state in coords_by_state:
-        n = len(state)
-        cx = sum(p[0] for p in state) / n
-        cy = sum(p[1] for p in state) / n
-        cz = sum(p[2] for p in state) / n
-        radii_by_state.append(
-            [math.dist(p, (cx, cy, cz)) for p in state]
-        )
-    return [
-        _rmsf([(radii[i], 0.0, 0.0) for radii in radii_by_state])
-        for i in range(len(radii_by_state[0]))
-    ]
+    n = len(coords_by_state[0])
+    if n < 2:
+        return 0.0, 0
+
+    total = n * (n - 1) // 2
+    if total <= max_pairs:
+        pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    else:
+        rng = random.Random(_SAMPLE_SEED)
+        chosen: set[tuple[int, int]] = set()
+        while len(chosen) < max_pairs:
+            i, j = rng.randrange(n), rng.randrange(n)
+            if i != j:
+                chosen.add((min(i, j), max(i, j)))
+        pairs = sorted(chosen)
+
+    changes = []
+    for i, j in pairs:
+        separations = [math.dist(state[i], state[j]) for state in coords_by_state]
+        changes.append(max(separations) - min(separations))
+    return sum(changes) / len(changes), len(pairs)
 
 
 def ensemble_spread_view(
@@ -158,9 +207,11 @@ def ensemble_spread_view(
     view takes ``superposed`` as a statement of what was done.
 
     But a flag is a claim, and a wrong claim is silent, so the numbers are
-    checked against it: :func:`radial_spread` is invariant under translation
-    and rotation, and a positional spread that dwarfs it means rigid motion
-    whatever the caller said. The report leads with that.
+    checked against it: a rigid motion preserves every interatomic distance
+    exactly, so a positional spread that dwarfs
+    :func:`internal_distance_change` means rigid motion whatever the caller
+    said. The report leads with that, and names how many atom pairs were
+    looked at.
 
     Args:
         atoms: Every atom in ``obj``, already read.
@@ -191,8 +242,12 @@ def ensemble_spread_view(
     # The check on the caller's claim. Comparing means rather than maxima
     # because a single flexible loop should not mask a whole-body drift.
     positional = sum(atom_spread) / len(atom_spread)
-    radial = sum(radial_spread(coords)) / len(atom_spread)
-    rigid_dominated = positional > RIGID_RATIO * max(radial, 1e-9)
+    # A rigid motion preserves every interatomic distance exactly, so a
+    # positional spread with no internal rearrangement under it is a rigid
+    # offset. The previous check used distance-to-centroid, which is blind
+    # to tangential motion and read a counter-rotating twist as rigid.
+    internal, pairs_sampled = internal_distance_change(coords)
+    rigid_dominated = pairs_sampled > 0 and positional > RIGID_RATIO * max(internal, 1e-9)
 
     values = sorted(residue_spread.values())
     lo, hi = values[0], values[-1]
@@ -227,13 +282,14 @@ def ensemble_spread_view(
             *(
                 [
                     "",
-                    "  ! RIGID-BODY MOTION DOMINATES. Each atom's distance to its own",
-                    f"  state's centroid varies by {radial:.2f} Å on average, while its",
-                    f"  position varies by {positional:.2f} Å. That gap is a rigid",
-                    "  offset or rotation between the states, not flexibility — the",
-                    "  radial figure is invariant to both. Fit the states onto a",
+                    "  ! RIGID-BODY MOTION DOMINATES. Interatomic distances change by",
+                    f"  {internal:.3f} Å on average across {pairs_sampled} atom pairs, while",
+                    f"  each atom's position varies by {positional:.2f} Å. A translation or",
+                    "  rotation preserves every interatomic distance exactly, so a large",
+                    "  positional spread with no internal rearrangement under it is a",
+                    "  rigid offset between the states, not flexibility. Fit them onto a",
                     "  common frame and measure again; the number above is not a",
-                    "  conformational quantity.",
+                    "  conformational quantity."
                 ]
                 if rigid_dominated
                 else []
