@@ -169,3 +169,43 @@ def test_a_quoted_value_composes_into_the_plus_list():
     assert " or " not in text, text
     # The chain is named once however the residues are written.
     assert text.count("chain") == 1, text
+
+
+class TestFramesEdgeCases:
+    """Guards that existed in the code the timeline rewrite replaced.
+
+    `Frames` is public scene API, so it is reachable with shapes that
+    `latent_traverse_view` never produces — it guards on `len(surfaces) > 1`
+    and never emits an empty one. Rewriting a block rather than editing it is
+    how both of these were lost: the invariants were in the replaced code and
+    nothing named them.
+    """
+
+    def test_a_single_surface_timeline_emits_a_clean_command(self):
+        """With one surface there are no siblings to disable, and the old code
+        said so explicitly. The rewrite left a leading empty statement."""
+        port = FakePort()
+        PymolBackend(port, normalised=None).render(
+            Scene([Frames(("s_01",), (1,), build_timeline=True)])
+        )
+
+        (args, _kwargs) = port.calls("mdo")[0]
+        command = str(args[1])
+        assert not command.strip().startswith(";"), f"leading empty statement: {command!r}"
+        assert command.strip() == "enable s_01", command
+
+    def test_an_empty_timeline_draws_nothing_rather_than_raising(self):
+        """`max()` over no frames raised ValueError — an internal error escaping
+        as the viewer's answer."""
+        port = FakePort()
+        PymolBackend(port, normalised=None).render(
+            Scene([Frames((), (), build_timeline=True)])
+        )
+
+        assert not port.calls("mdo"), port.call_log
+        assert not port.calls("mset"), port.call_log
+
+    def test_names_and_numbers_must_still_correspond(self):
+        """The length check is the one guard the rewrite did keep."""
+        with pytest.raises(ValueError, match="frame names but"):
+            Frames(("s_01", "s_02"), (1,), build_timeline=True)

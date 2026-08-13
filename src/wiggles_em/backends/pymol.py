@@ -517,6 +517,12 @@ class PymolBackend:
         # report promised "a surface's number is always the frame it was made
         # from" and told the reader to type `frame N` to step.
         by_number = dict(zip(op.numbers, op.names, strict=True))
+        if not by_number:
+            # `latent_traverse_view` guards on len(surfaces) > 1 and never emits
+            # this, but Frames is public scene API. `max()` over nothing raised
+            # ValueError, which is an internal error escaping as the viewer's
+            # answer; an empty timeline is simply nothing to build.
+            return
         span = max(by_number)
         call(self.port, "mset", f"1 x{span}")
         for number in range(1, span + 1):
@@ -535,7 +541,12 @@ class PymolBackend:
             # the timeline. Omitting it would leave the previous frame's surface
             # on screen while the report says that frame was never contoured —
             # showing one frame's density under another's number.
-            command = f"{others}; enable {name}" if name else others
+            #
+            # Both halves can be empty: a lone surface has no siblings to
+            # disable, and a skipped frame enables nothing. Joining them
+            # unconditionally left a leading `; ` — the guard that was in the
+            # code this loop replaced.
+            command = "; ".join(part for part in (others, f"enable {name}" if name else "") if part)
             # mdo attaches a command line to a frame; there is no cmd
             # equivalent that takes the command as data.
             call(self.port, "mdo", number, command)
