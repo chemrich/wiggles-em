@@ -255,7 +255,16 @@ class ScalarField:
         # quantity's domain, under a legend naming a quantity never drawn.
         # Documenting that was weaker than refusing it, and every other hazard
         # in this dataclass is refused.
-        wrong = sorted({k for k in self.keys if len(k) != 2})
+        # `isinstance` before `len`, and sorted by repr: the malformed keys this
+        # exists to catch are exactly the ones that break a naive check. A bare
+        # `rank` has no len() at all, and the old 4-tuple contract's `resi` was
+        # an int in some callers and a str in others, so sorting the raw keys
+        # raised TypeError comparing the two. A guard that dies on its own
+        # subject matter is worse than the silent wrongness it replaced.
+        wrong = sorted(
+            (k for k in self.keys if not isinstance(k, tuple) or len(k) != 2),
+            key=repr,
+        )
         if wrong:
             raise ValueError(
                 f"scalar field keys must have two parts — (model, rank) per "

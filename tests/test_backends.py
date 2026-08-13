@@ -325,3 +325,27 @@ def test_the_timeline_cost_is_bounded_by_the_highest_frame_number():
     assert len(commands) == 500, "one command per frame number, by design"
     assert len(gaps) == 490
     assert len(set(gaps)) == 1, "every gap frame clears the same set of surfaces"
+
+
+class TestTheArityGuardSurvivesWhatItCatches:
+    """A guard that raises TypeError on the malformed input it exists to reject
+    has replaced a silent wrong answer with a worse error message.
+
+    Both shapes below are plausible: a bare `rank` is an easy slip given how
+    much the docs emphasise it, and the old 4-tuple contract's `resi` was an int
+    in some callers and a str in others.
+    """
+
+    def test_a_non_tuple_key_gets_the_guards_own_message(self):
+        with pytest.raises(ValueError, match="two parts"):
+            ScalarField.per_atom([(3, 0.5)])
+
+    def test_keys_that_cannot_be_ordered_get_the_guards_own_message(self):
+        with pytest.raises(ValueError, match="two parts"):
+            ScalarField.per_atom([(("A", 12, "CA"), 0.5), (("A", "12", "CA"), 0.6)])
+
+    def test_a_string_key_is_refused_rather_than_split_into_characters(self):
+        """A str has a len() and is iterable, so it would sail past a naive
+        length check and be reported as a two-part key when it is one value."""
+        with pytest.raises(ValueError, match="two parts"):
+            ScalarField.per_atom([("m1", 0.5)])
