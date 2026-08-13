@@ -302,3 +302,26 @@ class TestScalarFieldRefusesAKeyItCannotMatch:
 
     def test_an_empty_field_is_still_allowed(self):
         assert len(ScalarField.per_atom([])) == 0
+
+
+def test_the_timeline_cost_is_bounded_by_the_highest_frame_number():
+    """Pinned because it is a real cost and an easy one to make worse.
+
+    The timeline spans frame *numbers*, not surfaces, so an ensemble whose only
+    usable frames are 491-500 builds 500 movie frames — 490 of them clearing the
+    view. The round trips cannot be avoided without breaking what happens when a
+    user jumps straight into a gap, but the identical gap command should be
+    built once.
+    """
+    names = tuple(f"s_{i:03d}" for i in range(491, 501))
+    port = FakePort()
+    PymolBackend(port, normalised=None).render(
+        Scene([Frames(names, tuple(range(491, 501)), build_timeline=True)])
+    )
+
+    commands = [str(args[1]) for args, _ in port.calls("mdo")]
+    gaps = [c for c in commands if "enable" not in c]
+
+    assert len(commands) == 500, "one command per frame number, by design"
+    assert len(gaps) == 490
+    assert len(set(gaps)) == 1, "every gap frame clears the same set of surfaces"

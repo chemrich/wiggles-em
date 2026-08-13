@@ -529,6 +529,7 @@ class PymolBackend:
             # answer; an empty timeline is simply nothing to build.
             return
         span = max(by_number)
+        all_disabled = "; ".join(f"disable {n}" for n in op.names)
         call(self.port, "mset", f"1 x{span}")
         for number in range(1, span + 1):
             name = by_number.get(number)
@@ -538,10 +539,18 @@ class PymolBackend:
             # the wildcard the Delete op's contract exists to forbid. Frames
             # already carries the exact names, so no string surgery is needed.
             #
-            # Quadratic in the number of frames, in string length only. A
-            # traversal is tens of frames and these are the cheapest commands
-            # PyMOL has.
-            others = "; ".join(f"disable {other}" for other in op.names if other != name)
+            # Quadratic in the number of frames, in string length. A traversal
+            # is normally tens of frames and these are the cheapest commands
+            # PyMOL has — but the cost is O(max frame number), not O(surfaces),
+            # and those diverge in exactly the gap case this numbering exists
+            # for: 10 usable frames numbered 491-500 build a 500-frame timeline,
+            # 490 of them "disable everything". The round trips are inherent
+            # (PyMOL runs an mdo when its frame is *entered*, so jumping into
+            # the middle of a gap run must still clear the view), but the
+            # identical gap command is built once rather than 490 times.
+            others = all_disabled if name is None else "; ".join(
+                f"disable {other}" for other in op.names if other != name
+            )
             # A skipped frame disables everything rather than being left out of
             # the timeline. Omitting it would leave the previous frame's surface
             # on screen while the report says that frame was never contoured —
