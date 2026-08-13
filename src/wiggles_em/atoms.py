@@ -13,7 +13,11 @@ from wiggles_em.port import ITERATE_TO_LIST, PortError, PymolPort
 
 # The iterate expression tier-1 views read. Order matters: it defines the
 # tuple layout that _to_atom unpacks.
-ATOM_EXPR = "chain, resi, resn, name, alt, q, b, model, index"
+#
+# ``rank``, not ``index``: see :attr:`Atom.key`. PyMOL renumbers ``index`` when
+# atoms are removed, which silently repoints every stashed value past the
+# deletion at a different atom.
+ATOM_EXPR = "chain, resi, resn, name, alt, q, b, model, rank"
 
 
 @dataclass(frozen=True)
@@ -30,7 +34,7 @@ class Atom:
     # No defaults. A default would make every atom built without them share
     # one key, which is the collision this field pair exists to remove.
     model: str
-    index: int
+    rank: int
 
     @property
     def residue(self) -> tuple[str, str]:
@@ -39,7 +43,7 @@ class Atom:
 
     @property
     def key(self) -> tuple[str, str]:
-        """A unique identity for this atom: its model and its index in it.
+        """A unique identity for this atom: its model and its rank within it.
 
         Chain + residue + name + altloc is **not** unique, and both ways it
         fails are ordinary rather than exotic:
@@ -50,11 +54,29 @@ class Atom:
           atom name repeat by construction.
 
         Either collision silently hands one atom another atom's value, which a
-        fixed colour ramp then renders as a perfectly ordinary result. PyMOL's
-        ``index`` is unique within an object and ``model`` names the object, so
-        the pair is unique across a session.
+        fixed colour ramp then renders as a perfectly ordinary result.
+
+        **``rank``, not ``index``.** Both are unique within an object, so both
+        remove the collision — but ``index`` is *renumbered when atoms are
+        removed*, and a stash keyed on it silently repoints at a different atom
+        the moment anyone tidies a structure. ``rank`` is the atom's position in
+        the file as loaded and does not move.
+
+        Checked against a live PyMOL 3.1.0 rather than taken from the
+        documentation, because the first attempt at this used ``index`` on the
+        strength of its uniqueness alone:
+
+        - ``remove hydro`` renumbered ``index`` (6→4, 7→5, 8→6) and left every
+          ``rank`` alone;
+        - so did removing a residue from the middle (5→3, 6→4);
+        - ``remove solvent`` renumbered *nothing*, because PyMOL sorts solvent
+          to the end of index order — which is why the finding's own repro did
+          not reproduce, and why this was checked by observation instead;
+        - ``rank`` came back unique across the object, and stays
+          non-contiguous after a removal (0, 2, 4, 5…), which is exactly what
+          makes it stable.
         """
-        return (self.model, str(self.index))
+        return (self.model, str(self.rank))
 
 
 def _to_atom(row: object) -> Atom:
@@ -73,7 +95,7 @@ def _to_atom(row: object) -> Atom:
             q=float(row[5]),
             b=float(row[6]),
             model=str(row[7]),
-            index=int(row[8]),
+            rank=int(row[8]),
         )
     except (TypeError, ValueError) as exc:
         raise PortError(f"malformed atom row {row!r}: {exc}") from exc

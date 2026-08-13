@@ -25,7 +25,8 @@ import json
 from wiggles_em.atoms import Atom
 from wiggles_em.port import PortError, PymolPort, call
 
-# obj name -> {(model, index): b}
+# obj name -> {(model, rank): b}  — Atom.key; rank, because index is
+# renumbered by a removal and the stash would then repoint at another atom.
 # Process-global. Correct for a single-session MCP server, which is what
 # MCPymol is today; wrong the moment one process serves two sessions. Keyed
 # by object name, so two sessions with the same object name would collide.
@@ -145,7 +146,7 @@ def restore_bfactors(port: PymolPort, obj: str) -> str:
     # same string in the alter expression.
     flat = {"|".join(k): v for k, v in saved.items()}
     port.do(f"stored.wiggles_b = {json.dumps(flat)}")
-    call(port, "alter", obj, "b=stored.wiggles_b.get('|'.join((model, str(index))), b)")
+    call(port, "alter", obj, "b=stored.wiggles_b.get('|'.join((model, str(rank))), b)")
     call(port, "rebuild", obj)
     # Drop the stash now the column holds those values again. Without this,
     # first-stash-wins would pin the object to B-factors that are no longer

@@ -31,10 +31,11 @@ def _isolate_module_state():
 def atom_rows(rows) -> list[tuple]:
     """Pad ``(chain, resi, resn, name, alt, q, b)`` rows out to ATOM_EXPR.
 
-    Atom identity is ``(model, index)`` — chain/residue/name/altloc collide on
-    insertion codes and across a selection spanning two models. Most tests do
-    not care which model an atom is in, so they write seven fields and get a
-    distinct index each; a test *about* identity writes all nine itself.
+    Atom identity is ``(model, rank)`` — chain/residue/name/altloc collide on
+    insertion codes and across a selection spanning two models, and ``index``
+    is renumbered whenever atoms are removed. Most tests do not care which
+    model an atom is in, so they write seven fields and get a distinct rank
+    each; a test *about* identity writes all nine itself.
     """
     return [row if len(row) == 9 else (*row, "m", i) for i, row in enumerate(rows, start=1)]
 
@@ -42,8 +43,8 @@ def atom_rows(rows) -> list[tuple]:
 def make_atoms(rows) -> list[Atom]:
     """Build atoms from seven- or nine-field rows."""
     return [
-        Atom(chain=c, resi=i, resn=n, name=a, alt=alt, q=q, b=b, model=model, index=index)
-        for c, i, n, a, alt, q, b, model, index in atom_rows(rows)
+        Atom(chain=c, resi=i, resn=n, name=a, alt=alt, q=q, b=b, model=model, rank=rank)
+        for c, i, n, a, alt, q, b, model, rank in atom_rows(rows)
     ]
 
 

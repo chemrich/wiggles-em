@@ -210,8 +210,12 @@ Colour = str | tuple[float, float, float]
 class Granularity(str, Enum):
     """What a scalar field's keys identify."""
 
-    #: Keys are ``(chain, resi, name, alt)`` — the same key the B-factor stash
-    #: uses, so an atom is identified identically wherever it appears.
+    #: Keys are ``(model, rank)`` — :attr:`wiggles_em.atoms.Atom.key`, the same
+    #: key the B-factor stash uses, so an atom is identified identically
+    #: wherever it appears. Build them with ``atom.key``, never by hand:
+    #: ``(chain, resi, name, alt)`` collides on insertion codes and across two
+    #: loaded structures, and a field built that way matches nothing at all,
+    #: which draws an ordinary-looking ramp of the *previous* column.
     ATOM = "atom"
     #: Keys are ``(chain, resi)``.
     RESIDUE = "residue"
@@ -260,7 +264,15 @@ class ScalarField:
 
     @classmethod
     def per_atom(cls, pairs) -> ScalarField:
-        """From ``[((chain, resi, name, alt), value), …]``."""
+        """From ``[(atom.key, value), …]`` — that is, ``[((model, rank), v), …]``.
+
+        Use :attr:`wiggles_em.atoms.Atom.key` rather than assembling the tuple.
+        A field keyed any other way matches nothing on the viewer side, and
+        nothing raises: the length and duplicate-key checks both pass, the
+        ``alter`` becomes a no-op, and the structure is coloured by whatever the
+        B-factor column already held — over the new quantity's domain, under a
+        legend naming a quantity that was never drawn.
+        """
         keys, values = zip(*pairs, strict=True) if pairs else ((), ())
         return cls(tuple(keys), tuple(float(v) for v in values), Granularity.ATOM)
 

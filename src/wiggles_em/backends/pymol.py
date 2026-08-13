@@ -282,7 +282,7 @@ class PymolBackend:
         # no structured equivalent.
         self.port.do(f"{_STORED} = {json.dumps(flat)}")
         if field.granularity is Granularity.ATOM:
-            key_expr = "'|'.join((model, str(index)))"
+            key_expr = "'|'.join((model, str(rank)))"
         else:
             key_expr = "'|'.join((chain, resi))"
         return f"b={_STORED}.get({key_expr}, b)"

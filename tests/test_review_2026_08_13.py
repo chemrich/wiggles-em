@@ -25,6 +25,8 @@ finding describes, with the discrepancy recorded in the test.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from tests.conftest import make_atoms, render
@@ -86,8 +88,7 @@ def test_1_a_view_that_destroyed_bfactors_does_not_let_the_next_one_stash_garbag
 # ── #2 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #2 not fixed yet")
-def test_2_atom_identity_survives_the_renumbering_that_removal_causes():
+def test_2_atom_identity_is_keyed_on_the_field_that_removal_does_not_renumber():
     """REVIEW #2, src/wiggles_em/atoms.py:45.
 
     Transcribed from: a per-atom view stashes {('6xyz','1'): b1, …} keyed on
@@ -102,34 +103,52 @@ def test_2_atom_identity_survives_the_renumbering_that_removal_causes():
     renumbers nothing (checked live, PyMOL 3.1.0). `remove hydro` — also named
     in the finding — does renumber, and is used here.
 
-    The structure is two heavy atoms with a hydrogen *between* them in index
-    order, which is where hydrogens sort. Removing it shifts the second heavy
-    atom's index from 3 to 2. Identity must not move with it.
+    Whether the field is stable is a fact about PyMOL, not about this package,
+    and it cannot honestly be asserted against hand-written rows: writing a
+    "renumbered rank" would be modelling the very thing rank does not do, and
+    writing an unchanged one would make the test true by construction. That
+    half is proved by observation in `test_selection_live.py`, which removes
+    atoms from a real session and reads both fields back.
+
+    What *is* this package's to get right, and what this asserts: that it asks
+    PyMOL for the stable field and keys identity on it, in every one of the
+    three places that has to agree — the iterate expression, `Atom.key`, and
+    both `alter` lookups. A change landing in some of those and not all is how
+    the previous two rounds went.
     """
-    before = [
-        ("A", "1", "MET", "CA", "", 1.0, 11.0, "m", 1),
-        ("A", "1", "MET", "H", "", 1.0, 12.0, "m", 2),  # sorts between the heavies
-        ("A", "2", "SER", "CA", "", 1.0, 22.0, "m", 3),
-    ]
-    after_removal = [
-        ("A", "1", "MET", "CA", "", 1.0, 11.0, "m", 1),
-        ("A", "2", "SER", "CA", "", 1.0, 22.0, "m", 2),  # index 3 -> 2
-    ]
+    from wiggles_em.atoms import ATOM_EXPR
+    from wiggles_em.bfactors import restore_bfactors, stash_bfactors
 
-    keys_before = {a.name: a.key for a in make_atoms(before) if a.name != "H"}
-    keys_after = {a.name: a.key for a in make_atoms(after_removal)}
-
-    assert keys_before["CA"] == keys_after["CA"], (
-        "the same atom got a different identity after an unrelated atom was "
-        f"removed: {keys_before} then {keys_after}. Every atom past the "
-        "deletion now restores another atom's B-factor."
+    fields = [f.strip() for f in ATOM_EXPR.split(",")]
+    assert "rank" in fields, f"the iterate expression does not request rank: {ATOM_EXPR}"
+    assert "index" not in fields, (
+        f"the iterate expression still requests index, which a removal "
+        f"renumbers: {ATOM_EXPR}"
     )
+
+    atom = make_atoms([("A", "1", "MET", "CA", "", 1.0, 11.0)])[0]
+    assert atom.key == (atom.model, str(atom.rank)), atom.key
+
+    # The scalar lookup and the restore lookup must key on the same field, or
+    # a view colours by one identity and the restore undoes it by another.
+    rows = [("A", "1", "MET", "CA", "", 1.0, 11.0)]
+    field = ScalarField.per_atom([(a.key, 0.5) for a in make_atoms(rows)])
+    drawn = render(("r", Scene([ColorByScalar(Sel.obj("m"), field, (0.0, 1.0))])), rows)
+    scalar_alter = drawn.port.call_log
+
+    stash_bfactors("m2", make_atoms(rows))
+    restore_port = FakePort()
+    restore_bfactors(restore_port, "m2")
+    restore_alter = restore_port.call_log
+
+    for label, log in (("scalar", scalar_alter), ("restore", restore_alter)):
+        assert "str(rank)" in log, f"the {label} alter does not key on rank: {log}"
+        assert "str(index)" not in log, f"the {label} alter still keys on index: {log}"
 
 
 # ── #10 ─────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #10 not fixed yet")
 def test_10_the_documented_per_atom_key_is_the_key_the_backend_looks_up():
     """REVIEW #10, src/wiggles_em/scene.py:213.
 
@@ -159,16 +178,25 @@ def test_10_the_documented_per_atom_key_is_the_key_the_backend_looks_up():
     # so both channels have to be read or the lookup is invisible here.
     lowered = "\n".join(drawn.port.commands) + "\n" + drawn.port.call_log
 
-    if "model" in lowered and "index" in lowered:
-        assert "chain, resi, name, alt" not in documented, (
-            "the lookup is keyed on (model, index) but the contract still "
-            "documents (chain, resi, name, alt); a field built to the "
-            f"documentation matches nothing. Lowered: {lowered}"
+    # Whatever fields the lookup is built from, the contract has to name those
+    # same ones — asserted in both directions rather than against a fixed
+    # spelling, so this keeps working if the key changes again.
+    key_expr = re.search(r"join\(\((.*?)\)\)", lowered)
+    assert key_expr, f"no per-atom key expression was emitted at all: {lowered}"
+    used = {f.strip().removeprefix("str(").removesuffix(")") for f in key_expr.group(1).split(",")}
+
+    for field in used:
+        assert field in documented, (
+            f"the lookup keys on {sorted(used)} but the contract never mentions "
+            f"{field!r}. A field built to the documentation matches nothing: "
+            f"`alter` becomes a no-op and the structure is coloured by whatever "
+            f"the B-factor column already held, under a legend naming a "
+            f"quantity that was never drawn."
         )
-    else:
-        assert "chain, resi, name, alt" in documented, (
-            f"documentation and lowering disagree the other way: {lowered}"
-        )
+    assert "chain, resi, name, alt" not in documented, (
+        "the contract still documents the old (chain, resi, name, alt) key, "
+        f"which the lookup no longer uses — it keys on {sorted(used)}."
+    )
 
 
 # ── #7 ──────────────────────────────────────────────────────────────────────

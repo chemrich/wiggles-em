@@ -147,3 +147,107 @@ def test_a_multi_chain_selection_matches_every_chain_it_names(probe):
     sel = Sel.residues([("A", "-3"), ("", "5")])
 
     assert call(probe, "count_atoms", _scoped(sel)) == 4
+
+
+# ── atom identity under removal (REVIEW #2) ─────────────────────────────────
+
+
+ROWS_WITH_HYDROGENS = [
+    # (chain, resseq, name, element) -- hydrogens sort *between* the heavy
+    # atoms in index order, which is what makes their removal renumber.
+    ("A", 1, "N", "N"),
+    ("A", 1, "H", "H"),
+    ("A", 1, "CA", "C"),
+    ("A", 1, "HA", "H"),
+    ("A", 1, "C", "C"),
+    ("A", 2, "N", "N"),
+    ("A", 2, "CA", "C"),
+    ("A", 2, "C", "C"),
+]
+
+HYDRO_OBJ = "_wsel_hydro"
+
+
+def _hydro_pdb() -> str:
+    lines = []
+    for serial, (chain, resseq, name, element) in enumerate(ROWS_WITH_HYDROGENS, start=1):
+        name_field = f" {name:<3}"
+        lines.append(
+            f"{'ATOM':<6}{serial:>5} {name_field:<4}{' ':1}{'ALA':>3} "
+            f"{chain:1}{resseq:>4}{' ':1}   "
+            f"{float(serial):>8.3f}{0.0:>8.3f}{0.0:>8.3f}"
+            f"{1.0:>6.2f}{float(serial):>6.2f}          {element:>2}"
+        )
+    return "\n".join(lines) + "\nEND\n"
+
+
+@pytest.fixture
+def hydro():
+    """A structure with hydrogens, loaded live and removed afterwards."""
+    port = BridgePort()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "hydro.pdb"
+        path.write_text(_hydro_pdb())
+        call(port, "delete", HYDRO_OBJ)
+        call(port, "load", str(path), HYDRO_OBJ)
+        try:
+            yield port
+        finally:
+            call(port, "delete", HYDRO_OBJ)
+
+
+def _read(port, expr="(rank, index, b)"):
+    """Rows keyed by b-factor, which is unique per atom here and never moves."""
+    rows = call(port, "iterate_to_list", HYDRO_OBJ, expr)
+    flat = [r[0] if isinstance(r, list) and len(r) == 1 and isinstance(r[0], list) else r for r in rows]
+    return {row[2]: (row[0], row[1]) for row in flat}
+
+
+def test_removal_renumbers_index_but_not_rank(hydro):
+    """REVIEW #2, established by observation rather than from documentation.
+
+    `Atom.key` keys on (model, rank). The reason has to be checked against a
+    real session, because both fields are unique within an object and the
+    uniqueness alone is what made `index` look adequate.
+    """
+    before = _read(hydro)
+    call(hydro, "remove", f"{HYDRO_OBJ} and hydro")
+    after = _read(hydro)
+
+    heavy = sum(1 for *_rest, element in ROWS_WITH_HYDROGENS if element != "H")
+    survivors = set(after) & set(before)
+    assert len(survivors) == heavy, (
+        f"expected {heavy} heavy atoms to survive, got {sorted(survivors)}"
+    )
+
+    moved_index = {b for b in survivors if before[b][1] != after[b][1]}
+    moved_rank = {b for b in survivors if before[b][0] != after[b][0]}
+
+    assert moved_index, (
+        "no atom's index moved, so this structure does not exercise the "
+        "finding at all — the test would pass for the wrong reason"
+    )
+    assert not moved_rank, (
+        f"rank moved for atoms {sorted(moved_rank)}, so it is not the stable "
+        f"field this package keys identity on. before={before} after={after}"
+    )
+
+
+def test_rank_is_unique_across_the_object(hydro):
+    """Stability is worth nothing without uniqueness: a repeated key hands one
+    atom another's value, which is the collision the key exists to remove."""
+    ranks = [rank for rank, _index in _read(hydro).values()]
+
+    assert len(set(ranks)) == len(ranks), ranks
+
+
+def test_the_package_asks_for_the_field_it_keys_on(hydro):
+    """ATOM_EXPR is what the session is actually queried with, so a mismatch
+    between it and `Atom.key` would surface here rather than in a mock."""
+    from wiggles_em.atoms import ATOM_EXPR, fetch_atoms
+
+    assert "rank" in ATOM_EXPR
+    atoms = fetch_atoms(hydro, HYDRO_OBJ)
+
+    assert len(atoms) == len(ROWS_WITH_HYDROGENS)
+    assert len({a.key for a in atoms}) == len(atoms), "keys collided in a live read"
