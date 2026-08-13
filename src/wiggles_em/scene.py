@@ -478,10 +478,28 @@ class Frames(SceneOp):
     Every frame holds the **same absolute level**. Contouring each frame at a
     fixed σ contours it against its own normalisation, which flattens away the
     density change the traversal exists to show.
+
+    ``numbers`` is the frame each surface was made from, and it is **not**
+    derivable from position: a frame whose header carries no usable RMS is
+    skipped, so the surfaces run 1, 2, 4, 5 with a gap where 3 would be. The
+    view knows those numbers and used to drop them, leaving the backend to
+    number the timeline by position — which silently repointed ``frame 4`` at
+    frame 5's density under a report promising the opposite.
+
+    No default, deliberately. A default would let the scene and the backend
+    hold different beliefs about the numbering, which is the bug itself.
     """
 
     names: tuple[str, ...]
+    numbers: tuple[int, ...]
     build_timeline: bool = False
+
+    def __post_init__(self) -> None:
+        if len(self.names) != len(self.numbers):
+            raise ValueError(
+                f"{len(self.names)} frame names but {len(self.numbers)} numbers — "
+                f"a timeline built from these would step to the wrong density"
+            )
 
 
 @dataclass(frozen=True)

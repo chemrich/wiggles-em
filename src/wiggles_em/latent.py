@@ -232,6 +232,7 @@ def latent_traverse_view(
     prefix = name or f"{ensemble_name}_surf"
     width = max(2, len(str(ensemble.n_frames)))
     surfaces: list[str] = []
+    numbers: list[int] = []
     ops: list = []
     for number, obj, sigma in usable:
         surface = f"{prefix}_{number:0{width}d}"
@@ -244,9 +245,13 @@ def latent_traverse_view(
         # encode frame index as if it were a measured quantity.
         ops.append(ColorFlat(Sel.obj(surface), color))
         surfaces.append(surface)
+        # Carried, not re-derived. The report promises "a surface's number is
+        # always the frame it was made from"; that promise is only keepable if
+        # the number travels with the surface.
+        numbers.append(number)
 
     if len(surfaces) > 1:
-        ops.append(Frames(tuple(surfaces), build_timeline=build_movie))
+        ops.append(Frames(tuple(surfaces), tuple(numbers), build_timeline=build_movie))
     ops.append(Legend(POPULATION_LEGEND))
     ops.append(Legend(GAP_LEGEND))
 

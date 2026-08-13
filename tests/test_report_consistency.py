@@ -323,9 +323,6 @@ def test_a_timeline_frame_shows_the_surface_its_number_names(label, views):
     flagged correct text. So the claim is checked structurally: every timeline
     index must equal the number of the surface it enables.
     """
-    if label == "latent_traverse_view (gapped)":
-        pytest.xfail("finding #5 not fixed yet: _frames renumbers over survivors")
-
     report, scene, port = views[label]
     if not any(isinstance(op, Frames) for op in scene):
         pytest.skip(f"{label} emits no timeline")

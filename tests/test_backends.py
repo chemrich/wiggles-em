@@ -55,7 +55,8 @@ def test_the_movie_is_entered_not_merely_built():
     superimposed instead of a stepped trajectory.
     """
     port = FakePort()
-    PymolBackend(port).render(Scene([Frames(("s_01", "s_02", "s_03"), build_timeline=True)]))
+    frames = Frames(("s_01", "s_02", "s_03"), (1, 2, 3), build_timeline=True)
+    PymolBackend(port).render(Scene([frames]))
 
     assert port.queried("frame"), port.call_log
     order = [name for name, _, _ in port.queries]
@@ -71,7 +72,7 @@ def test_the_movie_never_disables_anything_it_did_not_make():
     """
     port = FakePort()
     names = ("v_01", "v_02")
-    PymolBackend(port).render(Scene([Frames(names, build_timeline=True)]))
+    PymolBackend(port).render(Scene([Frames(names, (1, 2), build_timeline=True)]))
 
     for args, _ in port.calls("mdo"):
         command = args[1]

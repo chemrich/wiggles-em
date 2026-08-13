@@ -45,7 +45,7 @@ from __future__ import annotations
 
 from itertools import pairwise
 
-from wiggles_em.density import DEFAULT_CARVE, DEFAULT_SIGMA, to_absolute, to_sigma
+from wiggles_em.density import DEFAULT_CARVE, DEFAULT_SIGMA, to_absolute, to_sigma, usable_rms
 from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import LoadedMap, loaded_map
 from wiggles_em.port import PortError
@@ -350,7 +350,13 @@ def local_resolution_view(
         contour = to_sigma(main.header, float(level))  # type: ignore[arg-type]
     else:
         contour = float(level)  # type: ignore[arg-type]
-    contour_absolute = to_absolute(main.header, contour) if main.header.rms else None
+    # `usable_rms`, not truthiness: MRC writes rms=-1 for "statistics not
+    # computed" and -1 is truthy, so `if main.header.rms` sent it into
+    # `to_absolute`, which raises. The caller asked for a sigma contour and
+    # never requested a conversion, so the whole view died over an absolute
+    # equivalent that is merely unknown — no grid check, no ramp table, no
+    # provenance banner.
+    contour_absolute = to_absolute(main.header, contour) if usable_rms(main.header) else None
 
     surface = name or f"{map_obj}_localres"
 
@@ -389,7 +395,14 @@ def local_resolution_view(
         Legend(LOCAL_RESOLUTION_LEGEND),
     ])
 
-    absolute_text = f"{contour_absolute:.6g}" if contour_absolute is not None else "unknown (rms=0)"
+    # Reports the RMS it actually saw. Hard-coding "rms=0" told a reader with an
+    # rms=-1 header — statistics never computed, a different problem with a
+    # different remedy — that their map was flat.
+    absolute_text = (
+        f"{contour_absolute:.6g}"
+        if contour_absolute is not None
+        else f"unknown (rms={main.header.rms:g})"
+    )
     lines += [
         f"  Surface `{surface}` at {contour:.3g} sigma  =  {absolute_text} absolute"
         + (f", carved {carve:g} Å around {selection}." if selection else "."),

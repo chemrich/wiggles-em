@@ -239,7 +239,6 @@ def test_7_a_network_enhanced_map_is_not_suggested_as_merely_sharpened(filename,
 # ── #3 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #3 not fixed yet")
 def test_3_a_map_with_no_computed_statistics_does_not_kill_the_resolution_view(tmp_path):
     """REVIEW #3, src/wiggles_em/localres.py:353.
 
@@ -314,7 +313,6 @@ def test_4_an_unnormalised_session_can_still_render_an_ensemble(tmp_path):
 # ── #5 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #5 not fixed yet")
 def test_5_a_movie_frame_steps_to_the_latent_frame_its_surface_is_named_for(tmp_path):
     """REVIEW #5, src/wiggles_em/backends/pymol.py:475.
 

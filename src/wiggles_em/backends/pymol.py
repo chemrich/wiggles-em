@@ -485,8 +485,17 @@ class PymolBackend:
     def _frames(self, op: Frames) -> None:
         if not op.build_timeline:
             return
-        call(self.port, "mset", f"1 x{len(op.names)}")
-        for index, name in enumerate(op.names, start=1):
+        # The timeline is numbered by the frames the surfaces were MADE from,
+        # not by their position in the surviving list. `enumerate(..., start=1)`
+        # renumbered over the survivors, so with frame 3 skipped, `frame 3`
+        # showed frame 4's density and `frame 5` showed nothing — while the
+        # report promised "a surface's number is always the frame it was made
+        # from" and told the reader to type `frame N` to step.
+        by_number = dict(zip(op.numbers, op.names, strict=True))
+        span = max(by_number)
+        call(self.port, "mset", f"1 x{span}")
+        for number in range(1, span + 1):
+            name = by_number.get(number)
             # Every sibling named explicitly. The previous version recovered a
             # prefix with rsplit and disabled `prefix_*`, which also switched
             # off an unrelated `v_model` in the session on every frame step —
@@ -497,9 +506,14 @@ class PymolBackend:
             # traversal is tens of frames and these are the cheapest commands
             # PyMOL has.
             others = "; ".join(f"disable {other}" for other in op.names if other != name)
+            # A skipped frame disables everything rather than being left out of
+            # the timeline. Omitting it would leave the previous frame's surface
+            # on screen while the report says that frame was never contoured —
+            # showing one frame's density under another's number.
+            command = f"{others}; enable {name}" if name else others
             # mdo attaches a command line to a frame; there is no cmd
             # equivalent that takes the command as data.
-            call(self.port, "mdo", index, f"{others}; enable {name}" if others else f"enable {name}")
+            call(self.port, "mdo", number, command)
         # mdo commands run when a frame is *entered*. Without this the timeline
         # is built and never executed, so every isosurface stays enabled and
         # the traversal renders as one superimposed blob.
