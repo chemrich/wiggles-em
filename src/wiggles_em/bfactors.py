@@ -98,11 +98,16 @@ def stash_bfactors(obj: str, atoms: list[Atom]) -> int:
     :func:`restore_bfactors` clears the stash, so a view run after a restore
     takes a fresh baseline.
     """
-    if obj in _DESTROYED:
-        return 0
+    # Order matters: an object can have a real stash AND be marked destroyed,
+    # if a later view ran with preserve_bfactors=False. The stash is still the
+    # user's data and restore_bfactors still puts it back correctly, so report
+    # its true size — checking destroyed first said 0 and made the caller's
+    # "N values preserved" line false.
     existing = _STASH.get(obj)
     if existing is not None:
         return len(existing)
+    if obj in _DESTROYED:
+        return 0
     _STASH[obj] = {_key(a): a.b for a in atoms}
     return len(_STASH[obj])
 

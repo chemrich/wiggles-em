@@ -293,3 +293,24 @@ class TestTheRemedyTheNotePrintsActuallyWorks:
                 "the note tells the user to reload, which this package cannot "
                 f"observe, without naming the call that makes it true: {note}"
             )
+
+
+def test_a_real_stash_survives_the_object_being_marked_destroyed():
+    """`stash_bfactors` documents itself as "a no-op returning the size of the
+    stash already held, so a caller's 'N values preserved' line stays true".
+
+    The destroyed check ran first, so an object that had a genuine stash and was
+    later marked destroyed reported 0 — and a direct caller (a host, not the
+    backend, which is shielded by its own has_stash check) would print "The
+    original 0 values are held" while restore_bfactors would in fact restore
+    them correctly.
+    """
+    assert stash_bfactors("obj", ATOMS) == len(ATOMS)
+    mark_bfactors_destroyed("obj")
+
+    assert stash_bfactors("obj", ATOMS) == len(ATOMS), (
+        "an existing stash was reported as empty because the object was later "
+        "marked destroyed — but the stash is still there and still correct"
+    )
+    assert has_stash("obj")
+    assert "Restored 3" in restore_bfactors(FakePort(), "obj")
