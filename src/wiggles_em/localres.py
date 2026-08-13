@@ -45,7 +45,14 @@ from __future__ import annotations
 
 from itertools import pairwise
 
-from wiggles_em.density import DEFAULT_CARVE, DEFAULT_SIGMA, to_absolute, to_sigma, usable_rms
+from wiggles_em.density import (
+    DEFAULT_CARVE,
+    DEFAULT_SIGMA,
+    rms_meaning,
+    to_absolute,
+    to_sigma,
+    usable_rms,
+)
 from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import LoadedMap, loaded_map
 from wiggles_em.port import PortError
@@ -343,20 +350,37 @@ def local_resolution_view(
 
     # The main map's contour level, in the main map's sigma — a different scale
     # from the breakpoints above, which are in the resolution map's sigma.
+    # The level is kept in the unit it was GIVEN in, and converted only where
+    # the header allows and the session requires. Converting eagerly to sigma
+    # meant an absolute level died on an unusable rms even when nothing needed
+    # the sigma value — including on the very path the refusal below tells the
+    # user to take.
     used_default = level is None
     if used_default:
-        contour = DEFAULT_SIGMA
+        contour, contour_unit = DEFAULT_SIGMA, Unit.SIGMA
     elif units == "absolute":
-        contour = to_sigma(main.header, float(level))  # type: ignore[arg-type]
+        contour, contour_unit = float(level), Unit.ABSOLUTE  # type: ignore[arg-type]
     else:
-        contour = float(level)  # type: ignore[arg-type]
+        contour, contour_unit = float(level), Unit.SIGMA  # type: ignore[arg-type]
     # `usable_rms`, not truthiness: MRC writes rms=-1 for "statistics not
     # computed" and -1 is truthy, so `if main.header.rms` sent it into
     # `to_absolute`, which raises. The caller asked for a sigma contour and
     # never requested a conversion, so the whole view died over an absolute
     # equivalent that is merely unknown — no grid check, no ramp table, no
     # provenance banner.
-    contour_absolute = to_absolute(main.header, contour) if usable_rms(main.header) else None
+    # Both units where the header permits it; the one we were given otherwise.
+    # The pair is what the report prints and what `equivalent` carries, so the
+    # backend can honour whichever unit the session contours in.
+    contour_sigma: float | None
+    contour_absolute: float | None
+    if usable_rms(main.header):
+        contour_sigma = (
+            contour if contour_unit is Unit.SIGMA else to_sigma(main.header, contour)
+        )
+        contour_absolute = to_absolute(main.header, contour_sigma)
+    else:
+        contour_sigma = contour if contour_unit is Unit.SIGMA else None
+        contour_absolute = contour if contour_unit is Unit.ABSOLUTE else None
 
     # Surviving an unusable rms is right for a normalised session: the contour
     # is already in the unit PyMOL wants and only its absolute equivalent is
@@ -367,20 +391,31 @@ def local_resolution_view(
     # then a bare ValueError from inside the backend — after the user had been
     # told the surface existed. Refuse in the same shape as the breakpoint
     # conversion above.
-    if normalised is False and contour_absolute is None:
+    needed_unit = Unit.ABSOLUTE if normalised is False else Unit.SIGMA
+    have = contour_absolute if needed_unit is Unit.ABSOLUTE else contour_sigma
+    if have is None:
+        given = "absolute" if contour_unit is Unit.ABSOLUTE else "sigma"
+        # Names the argument rather than describing it: the remedy should be
+        # copy-pasteable, and a test can then execute exactly what the user is
+        # told to run. Both this message and the destroyed-B-factor note named
+        # remedies that did not work; a remedy is a promise the code makes.
+        remedy = (
+            f"  Pass the level with units='{needed_unit.value}' instead — this session\n"
+            f"  contours in {needed_unit.value}, so no conversion is needed."
+        )
         return "\n".join(
             [
                 f"local_resolution_view({map_obj} by {res_obj})",
                 "",
-                f"  REFUSED: {map_obj}'s header reports rms={main.header.rms:g}, so the "
-                f"contour",
-                "  cannot be converted to an absolute value.",
+                f"  REFUSED: the level was given in {given} and this session needs it in",
+                f"  {needed_unit.value}, but {map_obj}'s header reports "
+                f"rms={main.header.rms:g},",
+                f"  so the conversion cannot be made — {rms_meaning(main.header.rms)}.",
                 "",
-                "  normalize_ccp4_maps is OFF, so this session contours in absolute map",
-                "  values and the level has to be converted before anything can be drawn.",
-                "  Either give the level directly with units='absolute', repair the header",
-                "  statistics, or reload with normalisation on — where a sigma level needs",
-                "  no conversion and only its absolute equivalent stays unknown.",
+                f"  normalize_ccp4_maps is {'OFF' if normalised is False else 'ON'}, which "
+                f"is what decides the unit.",
+                remedy,
+                "  Or repair the header statistics, which makes both units available.",
             ]
         ), Scene()
 
@@ -412,7 +447,8 @@ def local_resolution_view(
             surface,
             map_obj,
             level=contour,
-            unit=Unit.SIGMA,
+            unit=contour_unit,
+            equivalent=(contour_absolute if contour_unit is Unit.SIGMA else contour_sigma),
             style=Rep.SURFACE,
             carve_around=Sel.raw(selection) if selection else None,
             carve_radius=carve if selection else None,
@@ -424,13 +460,11 @@ def local_resolution_view(
     # Reports the RMS it actually saw. Hard-coding "rms=0" told a reader with an
     # rms=-1 header — statistics never computed, a different problem with a
     # different remedy — that their map was flat.
-    absolute_text = (
-        f"{contour_absolute:.6g}"
-        if contour_absolute is not None
-        else f"unknown (rms={main.header.rms:g})"
-    )
+    unknown = f"unknown (rms={main.header.rms:g})"
+    absolute_text = f"{contour_absolute:.6g}" if contour_absolute is not None else unknown
+    sigma_text = f"{contour_sigma:.3g}" if contour_sigma is not None else unknown
     lines += [
-        f"  Surface `{surface}` at {contour:.3g} sigma  =  {absolute_text} absolute"
+        f"  Surface `{surface}` at {sigma_text} sigma  =  {absolute_text} absolute"
         + (f", carved {carve:g} Å around {selection}." if selection else "."),
         f"  Coloured by the resolution field in {res_obj}.",
         "",

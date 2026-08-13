@@ -571,3 +571,75 @@ class TestAnUnrenderableSceneIsRefusedNotReturned:
 
         assert "REFUSED" not in report, report
         PymolBackend(port, normalised=False).render(scene)
+
+
+class TestAnAbsoluteLevelDoesNotNeedASigmaScale:
+    """A level given in absolute units needs no conversion when the session
+    contours in absolute units — but the view converted eagerly, so an unusable
+    rms killed it before anything could notice the conversion was pointless.
+
+    This is what made the F4 refusal's own advice unfollowable: it told the user
+    to "give the level directly with units='absolute'", and that path raised
+    before the refusal was ever reached. A message that names a remedy is making
+    a promise; these tests execute it.
+    """
+
+    def _two_maps(self, tmp_path, main_rms):
+        main = write_map(tmp_path, "main.mrc", rms=main_rms)
+        res = write_map(tmp_path, "res.mrc", rms=0.5)
+        port = FakePort({"get_names": ["main", "res"], "iterate_to_list": []})
+        load_map(port, main, "main", provenance=Provenance.MEASURED)
+        load_map(port, res, "res", provenance=Provenance.MEASURED)
+        return port
+
+    def test_an_unnormalised_session_draws_an_absolute_level_without_the_rms(self, tmp_path):
+        """Nothing needs converting: the caller gave absolute, PyMOL wants
+        absolute. The header's statistics are irrelevant."""
+        port = self._two_maps(tmp_path, main_rms=-1.0)
+
+        report, scene = local_resolution_view(
+            "main", "res", normalised=False, level=0.05, units="absolute"
+        )
+
+        assert "REFUSED" not in report, report
+        assert list(scene), "the view should draw"
+        PymolBackend(port, normalised=False).render(scene)
+
+    def test_a_normalised_session_refuses_rather_than_raising(self, tmp_path):
+        """Here the conversion IS needed — PyMOL contours in sigma — and cannot
+        be made. That is a refusal, not a traceback."""
+        self._two_maps(tmp_path, main_rms=-1.0)
+
+        report, scene = local_resolution_view(
+            "main", "res", normalised=True, level=0.05, units="absolute"
+        )
+
+        assert "REFUSED" in report, report
+        assert not list(scene)
+
+    def test_the_refusals_own_advice_can_be_followed(self, tmp_path):
+        """The rule this class exists for. Whatever the refusal tells the user
+        to do must not itself raise."""
+        port = self._two_maps(tmp_path, main_rms=-1.0)
+        report, _ = local_resolution_view("main", "res", normalised=False)
+
+        assert "units='absolute'" in report, f"advice changed; update this test:\n{report}"
+
+        # Follow it, exactly as written.
+        followed, scene = local_resolution_view(
+            "main", "res", normalised=False, level=0.05, units="absolute"
+        )
+        assert "REFUSED" not in followed, (
+            f"the refusal told the user to do this and it does not work:\n{followed}"
+        )
+        PymolBackend(port, normalised=False).render(scene)
+
+    def test_an_absolute_level_is_unaffected_when_the_rms_is_usable(self, tmp_path):
+        port = self._two_maps(tmp_path, main_rms=0.5)
+
+        for normalised in (True, False):
+            report, scene = local_resolution_view(
+                "main", "res", normalised=normalised, level=0.05, units="absolute"
+            )
+            assert "REFUSED" not in report, report
+            PymolBackend(port, normalised=normalised).render(scene)
