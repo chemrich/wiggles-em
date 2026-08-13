@@ -22,7 +22,14 @@ import json
 from typing import cast
 
 from wiggles_em.atoms import fetch_atoms
-from wiggles_em.bfactors import has_stash, preservation_note, stash_bfactors
+from wiggles_em.bfactors import (
+    bfactors_destroyed,
+    destroyed_note,
+    has_stash,
+    mark_bfactors_destroyed,
+    preservation_note,
+    stash_bfactors,
+)
 from wiggles_em.density import to_absolute, to_sigma
 from wiggles_em.maps import loaded_map
 from wiggles_em.port import PortError, PymolPort, call
@@ -289,11 +296,19 @@ class PymolBackend:
         subset of what the ``alter`` is about to touch, and a partial stash
         restores a column that is right in places.
         """
+        obj = next((s.value for s in sel.walk() if s.kind == "obj"), None)
         if not self.preserve_bfactors:
+            # Record the loss, or the next view stashes this view's scalar as
+            # though it were the user's data and restore_bfactors writes it
+            # back reporting success.
+            if obj is not None:
+                mark_bfactors_destroyed(str(obj))
             self.notes.append("  WARNING: B-factors overwritten and not preserved.")
             return
-        obj = next((s.value for s in sel.walk() if s.kind == "obj"), None)
         if obj is None or has_stash(str(obj)):
+            return
+        if bfactors_destroyed(str(obj)):
+            self.notes.append(destroyed_note(str(obj)))
             return
         atoms = fetch_atoms(self.port, str(obj))
         stashed = stash_bfactors(str(obj), atoms)

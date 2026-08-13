@@ -36,7 +36,6 @@ from wiggles_em.scene import ColorByScalar, Granularity, ScalarField, Scene, Sel
 # ── #1 ──────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(strict=True, reason="finding #1 not fixed yet")
 def test_1_a_view_that_destroyed_bfactors_does_not_let_the_next_one_stash_garbage():
     """REVIEW #1, src/wiggles_em/backends/pymol.py:294.
 
@@ -72,8 +71,15 @@ def test_1_a_view_that_destroyed_bfactors_does_not_let_the_next_one_stash_garbag
             "restore wrote view A's scalar back as though it were the "
             f"crystallographic original: {written}"
         )
-    assert "original" not in note.lower(), (
+    # The claim the repro quotes is that the originals are *held* and can be
+    # put back. A note saying the opposite — that they are gone — is the
+    # honest outcome, so the assertion is on the claim rather than on the word
+    # "original", which appears in both.
+    assert "are held" not in note.lower(), (
         f"the note claims originals are held when they were already destroyed: {note}"
+    )
+    assert "restore_bfactors" not in note, (
+        f"the note offers a restore that would write view A's scalar back: {note}"
     )
 
 

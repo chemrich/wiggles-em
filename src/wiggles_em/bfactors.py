@@ -32,6 +32,33 @@ from wiggles_em.port import PortError, PymolPort, call
 # Flagged rather than solved — see MOVING.md.
 _STASH: dict[str, dict[tuple[str, str], float]] = {}
 
+# Objects whose B-factor column was overwritten with **no stash taken**, so the
+# originals are gone from this session. Tracked separately from _STASH because
+# "nothing saved" and "nothing left to save" look identical in a dict and mean
+# opposite things: the first invites a stash, the second forbids one.
+#
+# Without this, a view run with preserve_bfactors=False left _STASH empty, and
+# first-stash-wins then offered no protection at all — the *next* view read a
+# column already holding the first view's scalars, saved that as though it were
+# the user's data, and restore_bfactors wrote it back reporting success.
+_DESTROYED: set[str] = set()
+
+
+def mark_bfactors_destroyed(obj: str) -> None:
+    """Record that ``obj``'s B-factors were overwritten with nothing saved.
+
+    Called by a backend that is about to write over the column while the caller
+    has asked for no preservation. From this point a stash on ``obj`` is
+    refused, because everything readable off the session is now some view's
+    output rather than the user's data.
+    """
+    _DESTROYED.add(obj)
+
+
+def bfactors_destroyed(obj: str) -> bool:
+    """Were ``obj``'s B-factors overwritten with no stash taken?"""
+    return obj in _DESTROYED
+
 
 def _key(atom: Atom) -> tuple[str, str]:
     """Atom identity for restore purposes — see :attr:`Atom.key`.
@@ -58,9 +85,20 @@ def stash_bfactors(obj: str, atoms: list[Atom]) -> int:
     a no-op returning the size of the stash already held, so a caller's "N
     values preserved" line stays true.
 
+    **A destroyed column is not stashed at all.** If an earlier view overwrote
+    ``obj``'s B-factors with no stash taken (see
+    :func:`mark_bfactors_destroyed`), then what ``atoms`` carries is that view's
+    scalar, not the user's data. Saving it would make
+    :func:`restore_bfactors` write a Q-score or an occupancy into the B-factor
+    column and report success — the exact outcome first-stash-wins exists to
+    prevent, arrived at by the other door. Returns 0, and the caller says so
+    rather than claiming a preservation it does not have.
+
     :func:`restore_bfactors` clears the stash, so a view run after a restore
     takes a fresh baseline.
     """
+    if obj in _DESTROYED:
+        return 0
     existing = _STASH.get(obj)
     if existing is not None:
         return len(existing)
@@ -74,11 +112,18 @@ def has_stash(obj: str) -> bool:
 
 
 def clear_stash(obj: str | None = None) -> None:
-    """Forget the stash for ``obj``, or all of them."""
+    """Forget the stash for ``obj``, or all of them.
+
+    Clears the destroyed mark too: this means "forget what this session knows
+    about that object's B-factors", and a stale mark would refuse to preserve a
+    freshly reloaded structure whose column is genuinely the user's again.
+    """
     if obj is None:
         _STASH.clear()
+        _DESTROYED.clear()
     else:
         _STASH.pop(obj, None)
+        _DESTROYED.discard(obj)
 
 
 def restore_bfactors(port: PymolPort, obj: str) -> str:
@@ -124,4 +169,20 @@ def preservation_note(obj: str, stashed: int) -> str:
         f"  B-factor column overwritten. The original {stashed} values are held "
         f"in this session;\n  call restore_bfactors(port, '{obj}') to put them "
         f"back."
+    )
+
+
+def destroyed_note(obj: str) -> str:
+    """The line a view prints when the originals were already lost.
+
+    Says what is actually true rather than staying silent. The alternative —
+    printing nothing — leaves a user who has seen a preservation note on an
+    earlier view assuming the same guarantee holds here.
+    """
+    return (
+        f"  WARNING: {obj}'s B-factor column was already overwritten by an "
+        f"earlier view\n  that preserved nothing, so the original values are "
+        f"gone from this session.\n  Nothing was saved, because what is in the "
+        f"column now is that view's output.\n  Reload {obj} to get the "
+        f"deposited values back."
     )

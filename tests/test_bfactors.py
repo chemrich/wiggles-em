@@ -8,8 +8,11 @@ import pytest
 
 from wiggles_em.atoms import Atom
 from wiggles_em.bfactors import (
+    bfactors_destroyed,
     clear_stash,
+    destroyed_note,
     has_stash,
+    mark_bfactors_destroyed,
     preservation_note,
     restore_bfactors,
     stash_bfactors,
@@ -169,3 +172,60 @@ def test_restoring_clears_the_stash_so_a_later_view_can_take_a_baseline():
     restore_bfactors(port, "obj")
     payload = next(c for c in port.commands if "stored.wiggles_b" in c)
     assert json.loads(payload.split("= ", 1)[1]) == {"m|1": 99.0}
+
+
+class TestADestroyedColumnIsNotStashed:
+    """REVIEW #1. `preserve_bfactors=False` left _STASH empty, and
+    first-stash-wins protects nothing when there is no first stash.
+
+    "Nothing saved" and "nothing left to save" look identical in a dict and
+    mean opposite things: the first invites a stash, the second forbids one.
+    So the loss is recorded separately.
+    """
+
+    def test_a_stash_on_a_destroyed_object_is_refused(self):
+        mark_bfactors_destroyed("obj")
+
+        assert stash_bfactors("obj", ATOMS) == 0
+        assert not has_stash("obj")
+
+    def test_a_refused_stash_leaves_nothing_for_restore_to_write_back(self):
+        """The whole point: restore must not put a view's scalar into the
+        B-factor column and report success."""
+        mark_bfactors_destroyed("obj")
+        stash_bfactors("obj", ATOMS)
+
+        with pytest.raises(PortError, match="no saved B-factors"):
+            restore_bfactors(FakePort(), "obj")
+
+    def test_an_undestroyed_object_still_stashes_normally(self):
+        """The guard must not stop the ordinary path, which is every other
+        view in the package."""
+        assert stash_bfactors("obj", ATOMS) == len(ATOMS)
+        assert has_stash("obj")
+
+    def test_the_mark_is_per_object(self):
+        """One destroyed object must not block preserving a different one."""
+        mark_bfactors_destroyed("gone")
+
+        assert stash_bfactors("gone", ATOMS) == 0
+        assert stash_bfactors("kept", ATOMS) == len(ATOMS)
+
+    def test_clearing_forgets_the_mark_too(self):
+        """A reloaded structure's column is genuinely the user's again, so a
+        stale mark would refuse to preserve data that is worth preserving."""
+        mark_bfactors_destroyed("obj")
+        clear_stash("obj")
+
+        assert not bfactors_destroyed("obj")
+        assert stash_bfactors("obj", ATOMS) == len(ATOMS)
+
+    def test_the_two_notes_make_opposite_claims(self):
+        """A user who saw a preservation note on an earlier view must not read
+        the second one as the same guarantee."""
+        preserved = preservation_note("obj", 2)
+        destroyed = destroyed_note("obj")
+
+        assert "are held" in preserved and "restore_bfactors" in preserved
+        assert "are held" not in destroyed and "restore_bfactors" not in destroyed
+        assert "gone" in destroyed and "Reload" in destroyed
