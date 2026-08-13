@@ -29,6 +29,7 @@ from wiggles_em.bfactors import (
     mark_bfactors_destroyed,
     preservation_note,
     stash_bfactors,
+    stashed_count,
 )
 from wiggles_em.density import to_absolute, to_sigma
 from wiggles_em.maps import loaded_map
@@ -318,15 +319,25 @@ class PymolBackend:
         restores a column that is right in places.
         """
         obj = next((s.value for s in sel.walk() if s.kind == "obj"), None)
+        if obj is None:
+            return
+        # An existing stash outranks everything below, including
+        # preserve_bfactors=False. The originals are already held and
+        # `restore_bfactors` still puts them back, so there is nothing to record
+        # as lost and nothing to warn about — warning here told the user their
+        # crystallographic values were gone when one call would return them.
+        #
+        # Same ordering `stash_bfactors` gets right; this is the second place
+        # that had to, and it was missed when the first was fixed.
+        if has_stash(str(obj)):
+            self.notes.append(preservation_note(str(obj), stashed_count(str(obj))))
+            return
         if not self.preserve_bfactors:
             # Record the loss, or the next view stashes this view's scalar as
             # though it were the user's data and restore_bfactors writes it
             # back reporting success.
-            if obj is not None:
-                mark_bfactors_destroyed(str(obj))
+            mark_bfactors_destroyed(str(obj))
             self.notes.append("  WARNING: B-factors overwritten and not preserved.")
-            return
-        if obj is None or has_stash(str(obj)):
             return
         if bfactors_destroyed(str(obj)):
             self.notes.append(destroyed_note(str(obj)))

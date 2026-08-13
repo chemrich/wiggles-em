@@ -325,3 +325,55 @@ def test_a_zero_return_means_nothing_held_not_object_destroyed():
 
     assert stash_bfactors("obj", ATOMS) != 0
     assert bfactors_destroyed("obj"), "the destruction probe that still works"
+
+
+class TestTheBackendNoteMatchesWhatIsActuallyHeld:
+    """G6 made an existing stash outrank the destroyed mark in
+    `stash_bfactors`. The backend's `_stash` has the same ordering to get right
+    and still gets it wrong: it checks `preserve_bfactors` before `has_stash`,
+    so a non-preserving render on an already-stashed object warns that nothing
+    was preserved while the stash is intact and `restore_bfactors` still works.
+
+    A user reading that warning would conclude their crystallographic values are
+    gone when one call brings them back — the opposite of the contract G6 wrote
+    into `stash_bfactors` and H5 wrote into its docstring.
+    """
+
+    def _render(self, obj, *, preserve):
+        from wiggles_em.backends.pymol import PymolBackend
+        from wiggles_em.scene import ColorByScalar, ScalarField, Scene, Sel
+
+        rows = [("A", "1", "MET", "CA", "", 1.0, 11.0, obj, 1)]
+        port = FakePort({"iterate_to_list": rows})
+        field = ScalarField.per_atom([((obj, "1"), 0.5)])
+        backend = PymolBackend(port, preserve_bfactors=preserve, normalised=None)
+        backend.render(Scene([ColorByScalar(Sel.obj(obj), field, (0.0, 1.0))]))
+        return backend
+
+    def test_a_held_stash_is_not_reported_as_lost(self):
+        self._render("m1", preserve=True)
+        assert has_stash("m1"), "precondition: the first render stashed"
+
+        second = self._render("m1", preserve=False)
+        note = "\n".join(second.notes)
+
+        assert has_stash("m1"), "the stash is still held"
+        assert "not preserved" not in note, (
+            f"the stash survives and restore_bfactors still works, but the user "
+            f"is told their B-factors were not preserved:\n{note}"
+        )
+
+    def test_the_note_points_at_the_restore_that_still_works(self):
+        self._render("m2", preserve=True)
+        second = self._render("m2", preserve=False)
+
+        assert "restore_bfactors" in "\n".join(second.notes)
+
+    def test_an_unstashed_object_still_warns(self):
+        """The warning is right when there is genuinely nothing held — that
+        path must not be softened by fixing the other one."""
+        backend = self._render("m3", preserve=False)
+
+        assert not has_stash("m3")
+        assert "not preserved" in "\n".join(backend.notes)
+        assert bfactors_destroyed("m3")

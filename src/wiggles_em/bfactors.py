@@ -125,6 +125,16 @@ def has_stash(obj: str) -> bool:
     return obj in _STASH
 
 
+def stashed_count(obj: str) -> int:
+    """How many values are held for ``obj``. 0 when nothing is.
+
+    Exists so a caller can report what is held without re-stashing to find out
+    — `stash_bfactors` returns the count, but calling it for the number alone
+    would fetch atoms this caller does not need.
+    """
+    return len(_STASH.get(obj, ()))
+
+
 def clear_stash(obj: str | None = None) -> None:
     """Forget the stash for ``obj``, or all of them.
 
