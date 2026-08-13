@@ -394,27 +394,52 @@ def local_resolution_view(
     needed_unit = Unit.ABSOLUTE if normalised is False else Unit.SIGMA
     have = contour_absolute if needed_unit is Unit.ABSOLUTE else contour_sigma
     if have is None:
-        given = "absolute" if contour_unit is Unit.ABSOLUTE else "sigma"
-        # Names the argument rather than describing it: the remedy should be
-        # copy-pasteable, and a test can then execute exactly what the user is
-        # told to run. Both this message and the destroyed-B-factor note named
-        # remedies that did not work; a remedy is a promise the code makes.
-        remedy = (
-            f"  Pass the level with units='{needed_unit.value}' instead — this session\n"
-            f"  contours in {needed_unit.value}, so no conversion is needed."
+        # Every clause here is a claim about the user's session, so each is tied
+        # to something actually known. An earlier version said a level "was
+        # given" when the default had been used, asserted the normalisation
+        # setting when the session had declined to report it, and offered only
+        # the one remedy that cannot help a defaulted contour.
+        held = (
+            f"the level was given in {contour_unit.value}"
+            if not used_default
+            else f"no level was given, so the default {DEFAULT_SIGMA} sigma was used"
         )
+        setting = (
+            "  normalize_ccp4_maps is OFF, which is what decides the unit."
+            if normalised is False
+            else "  normalize_ccp4_maps is ON, which is what decides the unit."
+            if normalised is True
+            else "  PyMOL would not report normalize_ccp4_maps, so its default (ON) was\n"
+            "  assumed, and that is what decides the unit."
+        )
+        # Remedies, most actionable first for the case at hand. A defaulted
+        # sigma level has no absolute value the user could supply — computing
+        # it is the thing that just failed — so for that case the only real way
+        # out is to stop needing the conversion at all.
+        remedies = []
+        if used_default and needed_unit is Unit.ABSOLUTE:
+            remedies += [
+                "  Reload the map with normalisation on (`set normalize_ccp4_maps, on`",
+                "  before loading): a sigma level then needs no conversion at all.",
+                "  Or pass an absolute level of your own with units='absolute' — an",
+                "  EMDB author-recommended contour, for instance.",
+            ]
+        else:
+            remedies += [
+                f"  Pass the level with units='{needed_unit.value}' instead — this session",
+                f"  contours in {needed_unit.value}, so no conversion is needed.",
+            ]
         return "\n".join(
             [
                 f"local_resolution_view({map_obj} by {res_obj})",
                 "",
-                f"  REFUSED: the level was given in {given} and this session needs it in",
-                f"  {needed_unit.value}, but {map_obj}'s header reports "
-                f"rms={main.header.rms:g},",
-                f"  so the conversion cannot be made — {rms_meaning(main.header.rms)}.",
+                f"  REFUSED: {held} —",
+                f"  this session needs it in {needed_unit.value}, but {map_obj}'s header",
+                f"  reports rms={main.header.rms:g}, so the conversion cannot be made",
+                f"  ({rms_meaning(main.header.rms, brief=True)}).",
                 "",
-                f"  normalize_ccp4_maps is {'OFF' if normalised is False else 'ON'}, which "
-                f"is what decides the unit.",
-                remedy,
+                setting,
+                *remedies,
                 "  Or repair the header statistics, which makes both units available.",
             ]
         ), Scene()

@@ -643,3 +643,79 @@ class TestAnAbsoluteLevelDoesNotNeedASigmaScale:
             )
             assert "REFUSED" not in report, report
             PymolBackend(port, normalised=normalised).render(scene)
+
+
+class TestTheRefusalDescribesTheSituationTheUserIsIn:
+    """The refusal is the only thing the user gets, so every clause in it is a
+    claim about their session.
+
+    The previous version made three that were not true on some path: it said a
+    level "was given" when the default had been used, it asserted
+    `normalize_ccp4_maps is ON` when the session had declined to say, and its
+    remedy — pass an absolute level — was the one option that cannot help
+    someone who wanted the default contour, since the absolute equivalent of
+    that default is exactly what the unusable rms makes uncomputable.
+    """
+
+    def _maps(self, tmp_path):
+        main = write_map(tmp_path, "main.mrc", rms=-1.0)
+        res = write_map(tmp_path, "res.mrc", rms=0.5)
+        port = FakePort({"get_names": ["main", "res"], "iterate_to_list": []})
+        load_map(port, main, "main", provenance=Provenance.MEASURED)
+        load_map(port, res, "res", provenance=Provenance.MEASURED)
+        return port
+
+    def test_the_default_path_does_not_claim_a_level_was_given(self, tmp_path):
+        self._maps(tmp_path)
+        report, _ = local_resolution_view("main", "res", normalised=False)
+
+        # "the level was given" is the false claim; "no level was given" is the
+        # true one and contains it as a substring, so the assertion has to be on
+        # the claim rather than the phrase.
+        assert "the level was given" not in report, (
+            f"no level was given; the report says one was:\n{report}"
+        )
+        assert "no level was given" in report, report
+
+    def test_the_default_paths_remedy_is_one_the_user_can_actually_take(self, tmp_path):
+        """Entered from the user's own state, not from one the test builds.
+
+        The point of the rule: a test that supplies what the remedy asks for has
+        already assumed the user can. Here they cannot — there is no absolute
+        value to pass, because computing it is the thing that failed. The only
+        working remedy is to stop needing the conversion.
+        """
+        port = self._maps(tmp_path)
+        report, _ = local_resolution_view("main", "res", normalised=False)
+
+        assert "normalisation on" in report or "normalize_ccp4_maps, on" in report, (
+            f"the only remedy that works on this path is not offered:\n{report}"
+        )
+
+        # Take it, exactly as offered.
+        followed, scene = local_resolution_view("main", "res", normalised=True)
+        assert "REFUSED" not in followed, (
+            f"the refusal offered this and it does not work:\n{followed}"
+        )
+        PymolBackend(port, normalised=True).render(scene)
+
+    def test_an_unknown_normalisation_setting_is_not_asserted_as_on(self, tmp_path):
+        """`normalised=None` means the session would not say. `_ramp_table`
+        already hedges this; the refusal stated it as fact."""
+        self._maps(tmp_path)
+        report, _ = local_resolution_view(
+            "main", "res", normalised=None, level=0.05, units="absolute"
+        )
+
+        assert "is ON, which is what decides" not in report, (
+            f"the session declined to report the setting and this asserts it:\n{report}"
+        )
+        assert "would not report" in report or "assumed" in report, report
+
+    def test_a_known_setting_is_still_stated_plainly(self, tmp_path):
+        """Hedging the unknown must not make the known case vague."""
+        self._maps(tmp_path)
+        report, _ = local_resolution_view("main", "res", normalised=False)
+
+        assert "OFF" in report, report
+        assert "assumed" not in report, report
