@@ -358,6 +358,32 @@ def local_resolution_view(
     # provenance banner.
     contour_absolute = to_absolute(main.header, contour) if usable_rms(main.header) else None
 
+    # Surviving an unusable rms is right for a normalised session: the contour
+    # is already in the unit PyMOL wants and only its absolute equivalent is
+    # unknown. With normalisation OFF it is not, because the backend has to
+    # convert the contour to absolute before it can contour anything, and that
+    # conversion is exactly what an unusable rms forbids. Returning a scene here
+    # produced a full report naming a surface that could never be built, and
+    # then a bare ValueError from inside the backend — after the user had been
+    # told the surface existed. Refuse in the same shape as the breakpoint
+    # conversion above.
+    if normalised is False and contour_absolute is None:
+        return "\n".join(
+            [
+                f"local_resolution_view({map_obj} by {res_obj})",
+                "",
+                f"  REFUSED: {map_obj}'s header reports rms={main.header.rms:g}, so the "
+                f"contour",
+                "  cannot be converted to an absolute value.",
+                "",
+                "  normalize_ccp4_maps is OFF, so this session contours in absolute map",
+                "  values and the level has to be converted before anything can be drawn.",
+                "  Either give the level directly with units='absolute', repair the header",
+                "  statistics, or reload with normalisation on — where a sigma level needs",
+                "  no conversion and only its absolute equivalent stays unknown.",
+            ]
+        ), Scene()
+
     surface = name or f"{map_obj}_localres"
 
     lines = [

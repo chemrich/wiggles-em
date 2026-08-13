@@ -16,7 +16,7 @@ import pytest
 from conftest import render
 from test_mapinfo import write_map
 
-from wiggles_em.backends.pymol import normalisation_state
+from wiggles_em.backends.pymol import PymolBackend, normalisation_state
 from wiggles_em.density import DEFAULT_SIGMA
 from wiggles_em.localres import (
     DEFAULT_PALETTE,
@@ -509,3 +509,65 @@ def test_a_contour_is_not_converted_when_the_viewer_did_not_normalise(session):
     assert level == pytest.approx(0.05), (
         f"sent {level} to an unnormalised map that reads levels as absolute"
     )
+
+
+class TestAnUnrenderableSceneIsRefusedNotReturned:
+    """A view must not hand back a scene the backend will then reject.
+
+    Surviving an unusable rms is right for a normalised session: the caller
+    asked for a sigma contour, and only the *absolute equivalent* is unknown.
+    But with `normalize_ccp4_maps` off the backend has to convert that contour
+    to absolute before it can contour anything, and an unusable rms makes the
+    conversion impossible — so the view was returning a full report naming a
+    surface that could never be built, and the failure surfaced as a bare
+    ValueError from inside the backend after the user had been told it existed.
+    """
+
+    def _two_maps(self, tmp_path, main_rms):
+        main = write_map(tmp_path, "main.mrc", rms=main_rms)
+        res = write_map(tmp_path, "res.mrc", rms=0.5)
+        port = FakePort({"get_names": ["main", "res"], "iterate_to_list": []})
+        load_map(port, main, "main", provenance=Provenance.MEASURED)
+        load_map(port, res, "res", provenance=Provenance.MEASURED)
+        return port
+
+    def test_an_unnormalised_session_refuses_when_the_rms_is_unusable(self, tmp_path):
+        port = self._two_maps(tmp_path, main_rms=-1.0)
+
+        report, scene = local_resolution_view("main", "res", normalised=False)
+
+        assert "REFUSED" in report, report
+        assert not list(scene), "a refusal must draw nothing"
+        # And the refusal must survive contact with the backend.
+        PymolBackend(port, normalised=False).render(scene)
+
+    def test_the_refusal_explains_which_combination_is_the_problem(self, tmp_path):
+        self._two_maps(tmp_path, main_rms=-1.0)
+
+        report, _ = local_resolution_view("main", "res", normalised=False)
+
+        assert "rms" in report.lower()
+        assert "normalize_ccp4_maps" in report, (
+            "the report should name the session setting that makes this "
+            f"impossible, since that is what the user can change:\n{report}"
+        )
+
+    def test_a_normalised_session_still_survives_an_unusable_rms(self, tmp_path):
+        """The #3 fix must not be undone: with normalisation on, the contour is
+        already in the unit PyMOL wants and only the absolute equivalent is
+        unknown."""
+        port = self._two_maps(tmp_path, main_rms=-1.0)
+
+        report, scene = local_resolution_view("main", "res", normalised=True)
+
+        assert "REFUSED" not in report, report
+        assert list(scene), "the view should still draw"
+        PymolBackend(port, normalised=True).render(scene)
+
+    def test_an_unnormalised_session_with_a_usable_rms_is_unaffected(self, tmp_path):
+        port = self._two_maps(tmp_path, main_rms=0.5)
+
+        report, scene = local_resolution_view("main", "res", normalised=False)
+
+        assert "REFUSED" not in report, report
+        PymolBackend(port, normalised=False).render(scene)
