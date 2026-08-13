@@ -413,6 +413,11 @@ class PymolBackend:
         # nothing was drawn at all. Where the view could compute the equivalent
         # it carries it, and it is the only copy in existence.
         if equivalent is not None:
+            # Recorded like any other conversion. `self.converted` is what the
+            # report layer reads back to state both units without recomputing,
+            # and returning early skipped it — leaving nothing recorded for
+            # exactly the volumes this field was added to make renderable.
+            self.converted[volume] = (level, equivalent)
             return equivalent
 
         entry = loaded_map(volume, self.port)

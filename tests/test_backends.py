@@ -13,7 +13,7 @@ import pytest
 
 from wiggles_em.backends.pymol import PymolBackend, render_selection
 from wiggles_em.port import FakePort
-from wiggles_em.scene import Frames, Scene, Sel
+from wiggles_em.scene import Frames, Isosurface, Scene, Sel, Unit
 
 
 def test_a_large_residue_set_does_not_become_one_term_per_residue():
@@ -257,3 +257,19 @@ def test_frame_numbers_below_one_are_refused():
     trace — a surface silently absent from a movie that claims to hold it."""
     with pytest.raises(ValueError, match="1 or greater"):
         Frames(("s_00",), (0,), build_timeline=True)
+
+
+def test_a_carried_equivalent_is_recorded_like_any_other_conversion():
+    """`converted` is documented as what the report layer reads back so it can
+    state both units without recomputing. The `equivalent` short-circuit
+    returned early and recorded nothing — for precisely the volumes (ensemble
+    frames in an unnormalised session) the field exists to serve."""
+    port = FakePort()
+    backend = PymolBackend(port, normalised=False)
+    backend.render(
+        Scene([
+            Isosurface("s", "ens_f01", level=1.5, unit=Unit.SIGMA, equivalent=0.75),
+        ])
+    )
+
+    assert backend.converted["ens_f01"] == (1.5, 0.75), backend.converted
