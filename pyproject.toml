@@ -68,7 +68,12 @@ package = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "src" for the package; "." because three test modules import helpers as
+# `tests.conftest`, and without the repo root on the path `uv run pytest` fails
+# collection while `uv run python -m pytest` succeeds — the latter puts the cwd
+# on sys.path itself. A suite that passes one way and not the other is a trap
+# for whoever runs it the way the README does not happen to say.
+pythonpath = ["src", "."]
 # Both extra suites are opt-in: CI must pass offline and with no viewer at
 # all, but these check contracts that mocks cannot — external APIs, and a real
 # viewer.
