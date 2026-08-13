@@ -19,7 +19,6 @@ and ``mset`` are PyMOL's words for things the scene describes without them.
 from __future__ import annotations
 
 import json
-import re
 from typing import cast
 
 from wiggles_em.atoms import fetch_atoms
@@ -76,15 +75,6 @@ _REPS = {
 }
 
 
-#: Residue identifiers safe to put in a ``+``-separated list unquoted. A
-#: ``+`` list is the difference between one term and 1123 of them, and mixing
-#: a quoted value into one — ``resi "1"+"-3"`` — relies on grammar this
-#: package has not checked against a live PyMOL. Plain digits need no quoting
-#: and are the overwhelming majority, so they take the compact path and
-#: everything else takes the long one.
-_PLAIN_RESI = re.compile(r"^\d+$")
-
-
 def _no_quote(value: str) -> str:
     """Return ``value``, or raise if it carries a double quote."""
     if '"' in value:
@@ -105,13 +95,23 @@ def quote(value: str) -> str:
     * A **blank chain** — every atom in a file with no chain ID — leaves
       ``chain  and resi 2``, where ``and`` is consumed as the chain name. The
       selection stops being scoped to the object and matches the whole session.
+      Quoting fixes this one: ``chain ""`` stays scoped.
     * A **negative residue number**, an expression-tag remnant in most NMR and
       EM entries, is read as a *range*: ``resi -3`` means 1-3, so one residue's
       value gets written across three.
 
-    Both were verified against PyMOL 3.1.0 upstream, in both directions.
-    Quoting is a no-op for ordinary values, so every call site quotes rather
-    than testing whether it needs to.
+    **Quoting does not fix the second one**, though this package and MCPymol
+    both claimed it did. ``resi "-3"`` is still the range — checked against
+    PyMOL 3.1.0 on an object holding residues -3, 1 and 2, where it matched all
+    six atoms rather than residue -3's two. The escape the grammar honours is a
+    **backslash**, and it composes both with the quoting (``resi "\\-3"``
+    matches exactly residue -3) and with ``+`` lists (``resi "\\-3"+"1"+"2"``
+    matches three residues, not the range).
+
+    So a value is quoted *and* a leading minus escaped. The escape is a no-op
+    for every other shape — plain numbers, zero, insertion codes like ``52A``
+    and blank, lowercase or numeric chains were all checked against a live
+    session, and a chain literally named ``-`` matches under both forms.
 
     Raises:
         ValueError: ``value`` contains a double quote, which would close the
@@ -120,7 +120,10 @@ def quote(value: str) -> str:
             identifier, so this is a corrupt file rather than a case to
             support — and guessing at it is how the blank-chain bug behaved.
     """
-    return f'"{_no_quote(value)}"'
+    value = _no_quote(value)
+    # A leading '-' is the range operator to PyMOL's parser even inside quotes.
+    escaped = f"\\{value}" if value.startswith("-") else value
+    return f'"{escaped}"'
 
 
 def render_selection(sel: Sel) -> str:
@@ -146,23 +149,18 @@ def render_selection(sel: Sel) -> str:
         # PyMOL evaluates individually across the whole object.
         #
         # Numbers are never collapsed into ranges — turning 5 and 7 into 5-7
-        # would silently add residue 6 — and anything not plainly numeric is
-        # quoted and OR-ed inside its chain's term rather than joined with
-        # `+`, because a quoted value in a `+` list is grammar this package
-        # has not checked.
+        # would silently add residue 6. Every value goes through `quote`, which
+        # also escapes a leading minus, and quoted values compose in a `+` list
+        # (`resi "\-3"+"1"+"2"` matches three residues, checked against PyMOL
+        # 3.1.0). So there is one path rather than a plain-digit path and an
+        # everything-else path that could drift apart.
         by_chain: dict[str, list[str]] = {}
         for chain, resi in residues:
             by_chain.setdefault(chain, []).append(resi)
 
         terms = []
         for chain, numbers in by_chain.items():
-            plain = [n for n in numbers if _PLAIN_RESI.match(n)]
-            odd = [n for n in numbers if not _PLAIN_RESI.match(n)]
-            clauses = []
-            if plain:
-                clauses.append(f"resi {'+'.join(plain)}")
-            clauses += [f"resi {quote(n)}" for n in odd]
-            body = clauses[0] if len(clauses) == 1 else "(" + " or ".join(clauses) + ")"
+            body = f"resi {'+'.join(quote(n) for n in numbers)}"
             terms.append(f"(chain {quote(chain)} and {body})")
         return terms[0] if len(terms) == 1 else "(" + " or ".join(terms) + ")"
     if sel.kind == "first":

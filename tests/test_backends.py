@@ -110,11 +110,19 @@ def test_a_negative_residue_number_is_not_a_range():
 
     Negative auth numbering marks expression-tag remnants and is routine in
     NMR and EM entries.
+
+    Quoting alone does NOT fix this, though both this package and MCPymol
+    claimed it did: `resi "-3"` is still read as the range. Checked against
+    PyMOL 3.1.0 on an object holding residues -3, 1 and 2, where it matched all
+    six atoms instead of two. The backslash is the part that does the work —
+    see `test_selection_live.py`, which asserts the atom counts rather than the
+    spelling.
     """
     text = render_selection(Sel.residues([("A", "-3")]))
 
-    assert 'resi "-3"' in text, text
-    assert "resi -3" not in text.replace('resi "-3"', ""), text
+    assert 'resi "\\-3"' in text, text
+    assert 'resi "-3"' not in text, text
+    assert "resi -3" not in text.replace('resi "\\-3"', ""), text
 
 
 def test_an_insertion_code_survives_quoting():
@@ -139,22 +147,22 @@ def test_ordinary_residues_still_group_into_one_compact_term():
     text = render_selection(Sel.residues([("A", str(i)) for i in range(1, 1124)]))
 
     assert text.count(" or ") < 20, f"{text.count(' or ')} or-terms"
-    assert "1+2+3" in text, text
+    assert '"1"+"2"+"3"' in text, text
 
 
-def test_an_unsafe_residue_does_not_get_a_plus_list():
-    """A `+`-separated list is only safe for plainly numeric identifiers.
+def test_a_quoted_value_composes_into_the_plus_list():
+    """The old code split plainly-numeric residues onto a `+` list and sent
+    everything else the long way, because a quoted value in a `+` list was
+    "grammar this package has not checked".
 
-    Mixing a quoted value into one — `resi "1"+"-3"` — relies on grammar this
-    package has not checked against a live PyMOL, so anything not plainly
-    numeric goes the long way instead of the clever way.
+    It has now been checked against PyMOL 3.1.0, and the grammar accepts it:
+    `resi "\\-3"+"1"+"2"` matches three residues. So there is one path rather
+    than two that could drift apart — which is how half these findings started.
     """
     text = render_selection(Sel.residues([("A", "1"), ("A", "-3"), ("A", "2")]))
 
-    # Quoted, and not welded into a `+` list on either side.
-    assert 'resi "-3"' in text, text
-    assert '+"-3"' not in text and '"-3"+' not in text, text
-    # The safe ones still take the compact path...
-    assert "resi 1+2" in text, text
-    # ...and the chain is named once however the residues are written.
+    # One compact term, negative value included rather than exiled to an `or`.
+    assert text == '(chain "A" and resi "1"+"\\-3"+"2")', text
+    assert " or " not in text, text
+    # The chain is named once however the residues are written.
     assert text.count("chain") == 1, text
