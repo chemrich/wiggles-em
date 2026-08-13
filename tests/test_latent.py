@@ -377,3 +377,32 @@ class TestTheAnchorFrameIsAlwaysAttributed:
 
         assert "frame 1" in report, report
         assert "not frame 1" not in report, report
+
+
+def test_a_frame_skipped_for_rms_minus_one_is_not_described_as_flat(tmp_path):
+    """MRC writes rms=-1 for "statistics never computed" — mrcfile's default
+    without update_header_stats(). That is a different problem from a flat map,
+    with a different remedy, and the report hard-coded the flat one.
+
+    The same defect was fixed in localres.py; this site was missed because the
+    completeness grep was for the predicate `header.rms` and not for the string.
+    """
+    root = tmp_path / "ens"
+    root.mkdir()
+    (root / "z.pkl").write_text("x")
+    write_map(root, "vol_1.mrc", rms=0.5)
+    write_map(root, "vol_2.mrc", rms=-1.0)  # statistics never computed
+    write_map(root, "vol_3.mrc", rms=0.6)
+    names = [f"ens_f{i:02d}" for i in range(1, 4)]
+    load_ensemble(FakePort({"get_names": names, "iterate_to_list": []}), root, "ens")
+
+    report, _ = latent_traverse_view("ens")
+
+    assert "frame 2" in report, report
+    assert "rms=0" not in report, (
+        "a frame whose statistics were never computed is reported as having "
+        f"rms=0, which says the map is flat:\n{report}"
+    )
+    assert "never computed" in report, (
+        f"the report should say what rms=-1 actually means:\n{report}"
+    )

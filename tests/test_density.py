@@ -211,3 +211,16 @@ def test_zero_rms_is_still_rejected(tmp_path):
     header = read_map_header(write_map(tmp_path, "flat.mrc", rms=0.0))
     with pytest.raises(ValueError, match="flat map"):
         to_sigma(header, 0.05)
+
+
+def test_an_uncomputed_rms_is_not_reported_as_zero(tmp_path, loaded):
+    """`unknown (rms=0)` was hard-coded, so a header carrying MRC's
+    "statistics not computed" sentinel was described as a flat map."""
+    _port, obj, _header = loaded("nostats.mrc", rms=-1.0)
+
+    report, _scene = density_view(obj, "polymer")
+
+    assert "rms=0" not in report, (
+        f"an rms of -1 is reported as 0, which means something else:\n{report}"
+    )
+    assert "-1" in report, f"the report should name the rms it actually saw:\n{report}"

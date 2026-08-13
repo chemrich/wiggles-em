@@ -58,14 +58,30 @@ def usable_rms(header: MapHeader) -> bool:
     return header.rms > 0
 
 
-def _rms_meaning(rms: float) -> str:
-    """What a non-positive RMS in a real header usually means."""
+def rms_meaning(rms: float, *, brief: bool = False) -> str:
+    """What a non-positive RMS in a real header usually means.
+
+    Public because three modules print it. It was private and `latent` imported
+    it anyway, which is the sort of thing that gets duplicated rather than
+    shared the next time — and a second copy of this is a second place for
+    "rms=0 means flat" to be wrong.
+
+    ``brief`` gives the parenthetical form, for listing several frames at once
+    where the full sentence would run four times the width of the surrounding
+    report. Same knowledge, one definition, two lengths.
+    """
     if rms < 0:
         return (
-            "a negative RMS marks statistics that were never computed, which "
+            "statistics never computed"
+            if brief
+            else "a negative RMS marks statistics that were never computed, which "
             "is what mrcfile leaves behind without update_header_stats()"
         )
-    return "a zero RMS means a flat map, or one whose header statistics are stale"
+    return (
+        "flat map, or stale header statistics"
+        if brief
+        else "a zero RMS means a flat map, or one whose header statistics are stale"
+    )
 
 
 def to_sigma(header: MapHeader, absolute: float) -> float:
@@ -78,7 +94,7 @@ def to_sigma(header: MapHeader, absolute: float) -> float:
     if not usable_rms(header):
         raise ValueError(
             f"header reports rms={header.rms:g}, so sigma is undefined and an "
-            f"absolute level cannot be converted: {_rms_meaning(header.rms)}. "
+            f"absolute level cannot be converted: {rms_meaning(header.rms)}. "
             f"Give the level in absolute units instead."
         )
     return (absolute - header.dmean) / header.rms
@@ -96,7 +112,7 @@ def to_absolute(header: MapHeader, sigma: float) -> float:
     if not usable_rms(header):
         raise ValueError(
             f"header reports rms={header.rms:g}, so sigma is undefined and a "
-            f"sigma level has no absolute equivalent: {_rms_meaning(header.rms)}."
+            f"sigma level has no absolute equivalent: {rms_meaning(header.rms)}."
         )
     return header.dmean + sigma * header.rms
 
@@ -183,7 +199,14 @@ def density_view(
         Legend(provenance_banner(map_obj), provenance=map_obj),
     ])
 
-    absolute_text = f"{absolute:.6g}" if absolute is not None else "unknown (rms=0)"
+    # Reports the rms it actually saw, and what that value means. Hard-coding
+    # "rms=0" told a reader with MRC's "statistics not computed" sentinel that
+    # their map was flat — a different problem with a different remedy.
+    absolute_text = (
+        f"{absolute:.6g}"
+        if absolute is not None
+        else f"unknown (rms={header.rms:g}: {rms_meaning(header.rms)})"
+    )
     lines = [
         f"density_view({map_obj} around {selection})",
         "",

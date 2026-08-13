@@ -39,7 +39,13 @@ because that spread *is* the density change.
 
 from __future__ import annotations
 
-from wiggles_em.density import DEFAULT_SIGMA, to_absolute, to_sigma, usable_rms
+from wiggles_em.density import (
+    DEFAULT_SIGMA,
+    rms_meaning,
+    to_absolute,
+    to_sigma,
+    usable_rms,
+)
 from wiggles_em.heterogeneity import Ensemble, Method, loaded_ensemble
 from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
@@ -297,6 +303,25 @@ def latent_traverse_view(
     ), Scene(ops)
 
 
+def _skipped_reasons(ensemble: Ensemble, skipped_frames: list[int]) -> list[str]:
+    """One line per distinct rms among the skipped frames, saying what it means.
+
+    Grouped by value rather than listed per frame: twenty frames from one
+    unprocessed run all carry the same sentinel, and twenty identical lines
+    bury the one that differs.
+    """
+    by_value: dict[float, list[int]] = {}
+    for number in skipped_frames:
+        header = ensemble.headers[number - 1]
+        by_value.setdefault(header.rms, []).append(number)
+    return [
+        f"frame{'s' if len(frames) > 1 else ''} "
+        f"{', '.join(str(n) for n in frames)}: rms={value:g} "
+        f"({rms_meaning(value, brief=True)})"
+        for value, frames in sorted(by_value.items())
+    ]
+
+
 def _report(
     ensemble: Ensemble,
     prefix: str,
@@ -388,8 +413,13 @@ def _report(
         which = ", ".join(f"frame {n}" for n in skipped_frames)
         lines += [
             "",
-            f"  {skipped} frame(s) were skipped: their headers report rms=0, so no",
-            "  sigma level exists to draw them at. They are loaded but not contoured.",
+            f"  {skipped} frame(s) were skipped: their headers report an rms that",
+            "  cannot define a sigma scale, so no level exists to draw them at. They",
+            "  are loaded but not contoured.",
+            # What the rms actually is, and what that value means. "rms=0" was
+            # hard-coded here, so a frame whose statistics were never computed
+            # (MRC writes -1) was reported as a flat map.
+            *[f"    {reason}" for reason in _skipped_reasons(ensemble, skipped_frames)],
             f"  Skipped: {which}. The surfaces keep their own frame numbers, so the",
             "  sequence has gaps rather than being renumbered — a surface's number",
             "  is always the frame it was made from.",
