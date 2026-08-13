@@ -314,3 +314,14 @@ def test_a_real_stash_survives_the_object_being_marked_destroyed():
     )
     assert has_stash("obj")
     assert "Restored 3" in restore_bfactors(FakePort(), "obj")
+
+
+def test_a_zero_return_means_nothing_held_not_object_destroyed():
+    """The docstring invited `stash_bfactors(...) == 0` as a destruction probe,
+    and after G6 that reading is wrong: a destroyed object with a real stash
+    returns the stash size. `bfactors_destroyed` is the question to ask."""
+    stash_bfactors("obj", ATOMS)
+    mark_bfactors_destroyed("obj")
+
+    assert stash_bfactors("obj", ATOMS) != 0
+    assert bfactors_destroyed("obj"), "the destruction probe that still works"

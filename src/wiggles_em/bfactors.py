@@ -86,14 +86,22 @@ def stash_bfactors(obj: str, atoms: list[Atom]) -> int:
     a no-op returning the size of the stash already held, so a caller's "N
     values preserved" line stays true.
 
-    **A destroyed column is not stashed at all.** If an earlier view overwrote
-    ``obj``'s B-factors with no stash taken (see
+    **A destroyed column is not stashed, unless a real stash already exists.**
+    If an earlier view overwrote ``obj``'s B-factors with no stash taken (see
     :func:`mark_bfactors_destroyed`), then what ``atoms`` carries is that view's
     scalar, not the user's data. Saving it would make
     :func:`restore_bfactors` write a Q-score or an occupancy into the B-factor
     column and report success — the exact outcome first-stash-wins exists to
-    prevent, arrived at by the other door. Returns 0, and the caller says so
-    rather than claiming a preservation it does not have.
+    prevent, arrived at by the other door. Returns 0 in that case, and the
+    caller says so rather than claiming a preservation it does not have.
+
+    The two states are not exclusive: an object can be stashed by one view and
+    then destroyed by a later one running with ``preserve_bfactors=False``. The
+    stash is still the user's data and :func:`restore_bfactors` still puts it
+    back correctly, so it wins and the true size is returned.
+
+    A zero return therefore means "nothing is held", not "this object is
+    destroyed" — use :func:`bfactors_destroyed` for that question.
 
     :func:`restore_bfactors` clears the stash, so a view run after a restore
     takes a fresh baseline.
