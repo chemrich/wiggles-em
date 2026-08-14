@@ -86,6 +86,17 @@ markers = [
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+# Ruff formats Python code blocks inside Markdown, and `docs/plans` is prose:
+# its snippets are design sketches and historical records, not shipping code.
+# Reformatting one would rewrite a document to satisfy a tool that has no
+# opinion worth having about it — `SPLIT.md`'s illustrative `Scene([...])`
+# is written the way it is to make a point about shape.
+#
+# Excluded here rather than by scoping the CI commands, so that a local
+# `ruff format .` and CI's bare `ruff format --check` cannot disagree. That
+# divergence is the failure this repo already guards against for pytest, with
+# the "collection agrees both ways" step.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
