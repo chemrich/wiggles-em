@@ -614,16 +614,29 @@ class Isosurface(SceneOp):
     #: The same contour expressed in the *other* unit, when the view could
     #: work it out and the backend cannot.
     #:
-    #: A backend converts against the volume's header, which it reads from the
-    #: ``load_map`` record. Ensemble frames have no such record — they are
-    #: registered by ``load_ensemble`` — so a backend asked for the other unit
-    #: had no way to get there and refused, telling the user to load the volume
-    #: through ``load_map``, which for an ensemble frame is impossible. Nothing
-    #: was drawn at all.
+    #: **Optional, and increasingly so.** It exists for backends that convert
+    #: from a *header* they look up per volume — PyMOL's does, reading the
+    #: ``load_map`` record. Ensemble frames have no such record, being
+    #: registered by ``load_ensemble``, so such a backend asked for the other
+    #: unit had no way to get there and refused, telling the user to load the
+    #: volume through ``load_map``, which for an ensemble frame is impossible.
+    #: Nothing was drawn at all.
     #:
     #: ``latent_traverse_view`` holds one absolute level and converts it to each
     #: frame's own sigma using headers it already has. Carrying the absolute
     #: value alongside costs nothing and is the only copy that exists.
+    #:
+    #: **"A backend converts against the header" is no longer true of every
+    #: backend**, and this field's contract should not be read as requiring it.
+    #: protean computes a volume's statistics from the voxels, so it reaches a
+    #: sigma scale for any loaded volume, ensemble frame or not, and never
+    #: consults this field. That is the better position to be in — see
+    #: :class:`~wiggles_em.density.MapStats` for why a header's statistics are a
+    #: claim rather than a measurement — and a backend that measures should
+    #: prefer what it measured over what it was handed here.
+    #:
+    #: Kept regardless: the header-reading path is real, MCPymol is on it, and a
+    #: field that costs a float is not worth removing to tidy a contract.
     equivalent: float | None = None
 
 

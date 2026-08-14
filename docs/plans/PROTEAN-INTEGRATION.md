@@ -312,7 +312,12 @@ first one blocks something rather than merely tidying.
    it looks entirely normal. This is the σ trap this package already documents,
    one layer further out than the version we wrote down.
 
-2. **`Isosurface.equivalent` is unused by this backend.** Its docstring says a
+2. ~~**`Isosurface.equivalent` is unused by this backend.**~~ **DONE
+   2026-08-15** — the field's contract now says so, and says a backend that
+   measures should prefer what it measured. Kept, not removed: the
+   header-reading path is real and MCPymol is on it.
+
+   The original note. Its docstring says a
    backend "converts against the volume's header, which it reads from the
    `load_map` record", and that ensemble frames have no such record — which is
    what `equivalent` routes around. protean has no such constraint: it reaches
