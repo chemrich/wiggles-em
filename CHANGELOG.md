@@ -44,9 +44,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ruff format --check` in CI, and the 16 of 44 files that had drifted are
   formatted. The README never listed `ruff format`, so it had never run here
   and nothing was enforcing it. Behaviour-neutral: the suite reports the same
-  524 passed, 19 skipped, 11 deselected before and after.
+  524 passed before and after.
 
 ### Changed
+
+- **The `network` marker now marks something.** `test_mapinfo_live.py` carries
+  `pytest.mark.network` instead of gating on a `WIGGLES_LIVE=1` environment
+  variable. The marker was declared in `pyproject.toml` and documented as the
+  pre-release check from the start, but nothing carried it, so
+  **`pytest -m network` selected nothing and reported success** — a green
+  pre-release check that checked nothing. It now selects 3.
+
+  `WIGGLES_LIVE=1` is gone; use `pytest -m network`, symmetrical with
+  `pytest -m live`. One opt-in mechanism instead of two, and the second was
+  documented only inside the file that used it.
+
+  Default collection drops 543 → 540, since those 3 move from *skipped* to
+  *deselected*. `524 passed` is unchanged: they never ran by default either way.
 
 - **The package no longer hosts its own tools.** `tools.py` held MCPymol's
   `@mcp.tool` wrappers and did not come across; the views are the public

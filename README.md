@@ -99,8 +99,8 @@ interpreter they run on, so a matrix would repeat one answer four times.
 Two suites stay out of CI and have to be run by hand:
 
 ```bash
-uv run pytest -m live           # drives a running PyMOL; CLEARS ITS SESSION
-WIGGLES_LIVE=1 uv run pytest    # downloads real maps from EMDB
+uv run pytest -m live      # drives a running PyMOL; CLEARS ITS SESSION
+uv run pytest -m network   # downloads real maps from EMDB; run before a release
 ```
 
 `FakePort` records commands and replays canned query results, so every view is

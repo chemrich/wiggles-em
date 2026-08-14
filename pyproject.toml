@@ -79,7 +79,7 @@ pythonpath = ["src", "."]
 # viewer.
 addopts = "-m 'not network and not live'"
 markers = [
-    "network: hits a real external API; run before a release",
+    "network: hits a real external API; run before a release. `pytest -m network`",
     "live: drives a running viewer; CLEARS ITS SESSION. `pytest -m live`",
 ]
 

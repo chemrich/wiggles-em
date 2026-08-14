@@ -1,10 +1,10 @@
 """Live regression against real EMDB maps.
 
-Skipped unless ``WIGGLES_LIVE=1``, because it downloads and needs network. The
+Deselected by default via the ``network`` marker, because it downloads. The
 synthetic tests in ``test_mapinfo.py`` prove the parser is self-consistent;
 only this file proves it agrees with reality.
 
-    WIGGLES_LIVE=1 pytest tests/test_mapinfo_live.py -v
+    pytest -m network
 
 Each case asserts against the value **EMDB's own API reports**, fetched in the
 same run, so the test cannot drift from the archive.
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import gzip
 import json
-import os
 import ssl
 import urllib.error
 import urllib.request
@@ -24,10 +23,13 @@ import pytest
 
 from wiggles_em.mapinfo import read_map_header
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("WIGGLES_LIVE") != "1",
-    reason="set WIGGLES_LIVE=1 to run live EMDB downloads",
-)
+# `network`, the marker pyproject declares and `addopts` deselects. It was
+# declared and documented as the pre-release check from the start, but nothing
+# carried it, so `pytest -m network` selected nothing and reported success —
+# the same silent-pass shape the rest of this package exists to refuse. These
+# were gated on a `WIGGLES_LIVE=1` env var instead, a second convention that
+# only this file knew about.
+pytestmark = pytest.mark.network
 
 API = "https://www.ebi.ac.uk/emdb/api/entry/{acc}"
 FTP = "https://ftp.ebi.ac.uk/pub/databases/emdb/structures/{acc}/map/{lower}.map.gz"

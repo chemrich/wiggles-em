@@ -88,8 +88,9 @@ jobs:
         # green — "N passed" simply gets smaller. Same shape as the bug where
         # protean's browser job passed with twenty new tests unexecuted.
         #
-        # 543 selected of 554, measured 2026-08-14 on 3.10 through 3.13; the 11
-        # deselected are test_selection_live.py, which needs a running PyMOL.
+        # 540 selected of 554, measured 2026-08-14 on 3.10 through 3.13. The 14
+        # deselected are test_selection_live.py (11, `live`, needs a running
+        # PyMOL) and test_mapinfo_live.py (3, `network`, downloads from EMDB).
         #
         # `-ne`, not `-lt`. A floor stops guarding the moment the suite outgrows
         # it: at 640 tests a whole file could vanish and still clear a floor of
@@ -102,7 +103,7 @@ jobs:
         # under `-e` kills the step before it can print why. Check pytest's own
         # status first, then count, tolerating grep's empty-match exit.
         run: |
-          expected=543
+          expected=540
           if ! out=$(uv run pytest --collect-only -q 2>&1); then
             echo "::error::pytest could not collect the suite at all — see below."
             printf '%s\n' "${out}" | tail -25
