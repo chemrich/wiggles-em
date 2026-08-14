@@ -35,6 +35,7 @@ from wiggles_em.scene import (
     Scene,
     SceneOp,
     Sel,
+    resolve_colour,
 )
 
 # wwPDB has spelled this differently across releases; accept what we have seen
@@ -163,7 +164,7 @@ def qscore_view(
         )
     ]
     if missing:
-        ops.append(ColorFlat(target & Sel.residues(missing), NO_DATA_COLOUR))
+        ops.append(ColorFlat(target & Sel.residues(missing), resolve_colour(NO_DATA_COLOUR)))
     ops.append(Legend(QSCORE_LEGEND))
     scene = Scene(ops)
 

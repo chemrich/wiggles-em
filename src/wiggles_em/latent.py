@@ -49,7 +49,18 @@ from wiggles_em.density import (
 from wiggles_em.heterogeneity import Ensemble, Method, loaded_ensemble
 from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
-from wiggles_em.scene import ColorFlat, Frames, Isosurface, Legend, Rep, Scene, Sel, Unit
+from wiggles_em.scene import (
+    ColorFlat,
+    Colour,
+    Frames,
+    Isosurface,
+    Legend,
+    Rep,
+    Scene,
+    Sel,
+    Unit,
+    resolve_colour,
+)
 
 #: Phrasings that would turn a gap into an absence claim. I3 forbids all of
 #: them, in any output this package produces about latent space. Checked by
@@ -123,7 +134,7 @@ def latent_traverse_view(
     level: float | None = None,
     units: str = "sigma",
     name: str | None = None,
-    color: str = "skyblue",
+    color: Colour = "skyblue",
     build_movie: bool = True,
 ) -> tuple[str, Scene]:
     """Build a steppable isosurface trajectory through an ensemble's frames.
@@ -148,8 +159,9 @@ def latent_traverse_view(
 
     Raises:
         PortError: no such ensemble, or its method was never identified (I2).
-        ValueError: ``units`` is not recognised, or the level cannot be
-            converted.
+        ValueError: ``units`` is not recognised, the level cannot be
+            converted, or ``color`` is a name
+            :func:`~wiggles_em.scene.resolve_colour` has no value for.
     """
     if units not in ("sigma", "absolute"):
         raise ValueError(f"units must be 'sigma' or 'absolute', got {units!r}")
@@ -275,7 +287,7 @@ def latent_traverse_view(
         )
         # One colour for every frame, on purpose: a per-frame spectrum would
         # encode frame index as if it were a measured quantity.
-        ops.append(ColorFlat(Sel.obj(surface), color))
+        ops.append(ColorFlat(Sel.obj(surface), resolve_colour(color)))
         surfaces.append(surface)
         # Carried, not re-derived. The report promises "a surface's number is
         # always the frame it was made from"; that promise is only keepable if

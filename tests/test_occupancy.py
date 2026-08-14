@@ -17,7 +17,15 @@ from wiggles_em.atoms import fetch_atoms
 from wiggles_em.bfactors import has_stash, restore_bfactors
 from wiggles_em.occupancy import SENSE_1_LEGEND, altloc_view, occupancy_view
 from wiggles_em.port import FakePort, PortError
-from wiggles_em.scene import ColorByScalar, ColorFlat, Label, Legend, Sense, Show
+from wiggles_em.scene import (
+    ColorByScalar,
+    ColorFlat,
+    Label,
+    Legend,
+    Sense,
+    Show,
+    resolve_colour,
+)
 
 FULL = [
     ("A", "1", "MET", "CA", "", 1.0, 20.0),
@@ -168,7 +176,8 @@ def test_altloc_groups_get_distinct_colours():
     alts = {s.value for sel in shown for s in sel.walk() if s.key == "alt"}
     assert alts == {"A", "B"}, shown
 
-    used = {op.colour for op in d.scene.of(ColorFlat) if op.colour != "grey70"}
+    backdrop = resolve_colour("grey70")
+    used = {op.colour for op in d.scene.of(ColorFlat) if op.colour != backdrop}
     assert len(used) == 2, f"expected 2 distinct colours, got {used}"
 
 

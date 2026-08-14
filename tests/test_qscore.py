@@ -7,10 +7,11 @@ import gzip
 import pytest
 from conftest import draw, make_atoms
 
+from tests.test_colour_seam import assert_no_palette_names
 from wiggles_em.bfactors import has_stash
 from wiggles_em.port import PortError
 from wiggles_em.qscore import NO_DATA_COLOUR, QSCORE_LEGEND, parse_validation_xml, qscore_view
-from wiggles_em.scene import ColorByScalar, ColorFlat
+from wiggles_em.scene import ColorByScalar, ColorFlat, resolve_colour
 
 VALIDATION = """<?xml version="1.0" encoding="UTF-8"?>
 <wwPDB-validation-information>
@@ -106,7 +107,11 @@ def test_unscored_residues_are_greyed_not_zeroed(validation):
 
     # The unscored residue is coloured flat, never put on the scale...
     (flat,) = d.scene.of(ColorFlat)
-    assert flat.colour == NO_DATA_COLOUR
+    assert flat.colour == resolve_colour(NO_DATA_COLOUR)
+    # ...as RGB. This branch is the one colour path `test_defaults` cannot
+    # reach — its fixture scores every residue — so the seam invariant is
+    # asserted here, where a missing residue actually exists.
+    assert_no_palette_names(d.scene)
     assert ("A", "99") in {r for s in flat.sel.walk() if s.kind == "residues" for r in s.value}
 
     # ...and it is absent from the scalar field entirely, which is the stronger

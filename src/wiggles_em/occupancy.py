@@ -30,6 +30,7 @@ from wiggles_em.scene import (
     Sel,
     Sense,
     Show,
+    resolve_colour,
 )
 
 # Occupancy at or above this is "full" for reporting purposes. Occupancies are
@@ -42,7 +43,12 @@ FULL_OCCUPANCY = 0.999
 # saying when low-occupancy atoms are present.
 QFIT_FLOOR = 0.10
 
-# Distinct colours for altloc groups, in assignment order.
+# Backdrop for the non-alternate part of the model.
+_BACKDROP = "grey70"
+
+# Distinct colours for altloc groups, in assignment order. Kept as PyMOL names
+# because they are also report text; `resolve_colour` turns them into the RGB
+# that reaches the Scene.
 _ALTLOC_COLOURS = (
     "skyblue",
     "salmon",
@@ -186,14 +192,17 @@ def altloc_view(atoms: list[Atom], obj: str, *, label: bool = True) -> tuple[str
     ops = [
         Hide(target, Rep.EVERYTHING),
         Show(target, Rep.CARTOON),
-        ColorFlat(target, "grey70"),
+        ColorFlat(target, resolve_colour(_BACKDROP)),
     ]
 
     per_group: list[str] = []
     for i, alt in enumerate(groups):
+        # The name goes in the report and the RGB goes in the Scene. A reader
+        # is better served by "skyblue" than by a triple, and a second viewer
+        # is only served by the triple — see `resolve_colour`.
         colour = _ALTLOC_COLOURS[i % len(_ALTLOC_COLOURS)]
         sel = target & Sel.prop("alt", alt)
-        ops += [Show(sel, Rep.STICKS), ColorFlat(sel, colour)]
+        ops += [Show(sel, Rep.STICKS), ColorFlat(sel, resolve_colour(colour))]
         members = [a for a in atoms if a.alt == alt]
         occ = sorted({round(a.q, 3) for a in members})
         occ_text = ", ".join(f"{q:g}" for q in occ[:4]) + (" …" if len(occ) > 4 else "")

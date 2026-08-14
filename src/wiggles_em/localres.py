@@ -57,7 +57,16 @@ from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import LoadedMap, loaded_map
 from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
-from wiggles_em.scene import ColorSurfaceByMap, Isosurface, Legend, Rep, Scene, Sel, Unit
+from wiggles_em.scene import (
+    ColorSurfaceByMap,
+    Isosurface,
+    Legend,
+    Rep,
+    Scene,
+    Sel,
+    Unit,
+    resolve_colour,
+)
 
 #: Relative tolerance for calling two voxel spacings the same, for the same
 #: reason :data:`wiggles_em.mapinfo.ISOTROPY_RTOL` exists: EMD-30913 reports
@@ -237,7 +246,8 @@ def local_resolution_view(
             are always in Ångström.
         breaks: Ascending resolution breakpoints in Å. Defaults to the
             resolution map's own observed range.
-        palette: One colour per breakpoint. Defaults to
+        palette: One colour per breakpoint, each an RGB triple in 0–1 or a
+            name :func:`~wiggles_em.scene.resolve_colour` knows. Defaults to
             :data:`DEFAULT_PALETTE`, blue (best) through red (worst).
         selection: Restrict the surface to a carve around this selection.
         carve: Carve radius in Å. Ignored without ``selection``.
@@ -261,8 +271,9 @@ def local_resolution_view(
 
     Raises:
         PortError: either object was not loaded through ``load_map``.
-        ValueError: bad ``units``, bad breakpoints, or a palette that does not
-            match the breakpoints.
+        ValueError: bad ``units``, bad breakpoints, a palette that does not
+            match the breakpoints, or a palette colour that is neither RGB nor
+            a name :func:`~wiggles_em.scene.resolve_colour` knows.
     """
     if units not in ("sigma", "absolute"):
         raise ValueError(f"units must be 'sigma' or 'absolute', got {units!r}")
@@ -518,7 +529,12 @@ def local_resolution_view(
                 carve_around=Sel.raw(selection) if selection else None,
                 carve_radius=carve if selection else None,
             ),
-            ColorSurfaceByMap(surface, res_obj, tuple(points), tuple(colours)),
+            ColorSurfaceByMap(
+                surface,
+                res_obj,
+                tuple(points),
+                tuple(resolve_colour(c) for c in colours),
+            ),
             Legend(LOCAL_RESOLUTION_LEGEND),
         ]
     )

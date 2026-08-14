@@ -204,7 +204,88 @@ class Sense(str, Enum):
 
 
 Colour = str | tuple[float, float, float]
-"""A named colour, or RGB in 0–1. Backends that need a name define one."""
+"""A named colour, or RGB in 0–1. Backends that need a name define one.
+
+**A name is an argument, not a scene value.** Every name below is one of
+*PyMOL's*, so a Scene carrying one can only be honoured by a second viewer that
+reimplements PyMOL's table — which is a viewer-neutral value naming a viewer.
+Views therefore call :func:`resolve_colour` on whatever a caller passed and put
+RGB in the Scene. Callers keep naming colours, because a view's signature is
+not the seam; the Scene is.
+"""
+
+
+#: PyMOL's RGB for the names this package uses or accepts. Assembled from the
+#: two copies that already existed — ``composition._blend``'s table and
+#: protean's ``backends/molstar.py::_COLOUR_NAMES`` — which had **disjoint**
+#: name sets and agreed on the one name they shared (``skyblue``). That
+#: divergence is why this lives in one place now.
+#:
+#: Deliberately not exhaustive. A name whose value this package cannot state
+#: confidently is refused rather than approximated, because a wrong RGB draws a
+#: plausible picture and reports success. Callers wanting anything else pass an
+#: RGB triple, which needs no table at all.
+_PALETTE: dict[str, tuple[float, float, float]] = {
+    # Unambiguous in any viewer.
+    "red": (1.0, 0.0, 0.0),
+    "green": (0.0, 1.0, 0.0),
+    "blue": (0.0, 0.0, 1.0),
+    "yellow": (1.0, 1.0, 0.0),
+    "cyan": (0.0, 1.0, 1.0),
+    "magenta": (1.0, 0.0, 1.0),
+    "orange": (1.0, 0.5, 0.0),
+    "white": (1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0),
+    # PyMOL's pastels, used for altloc groups and defaults.
+    "skyblue": (0.34, 0.63, 0.83),
+    "salmon": (1.0, 0.6, 0.6),
+    "palegreen": (0.65, 0.9, 0.65),
+    "wheat": (0.99, 0.82, 0.65),
+    "lightpink": (1.0, 0.75, 0.87),
+    "paleyellow": (1.0, 1.0, 0.5),
+    "lightblue": (0.75, 1.0, 1.0),
+    "lightorange": (1.0, 0.8, 0.5),
+}
+
+#: ``grey``/``gray`` with no suffix. The suffixed family is computed — see
+#: :func:`resolve_colour`.
+_GREY = (0.5, 0.5, 0.5)
+
+
+def resolve_colour(colour: Colour) -> tuple[float, float, float]:
+    """RGB in 0–1 for ``colour``, which may already be RGB.
+
+    Raises:
+        ValueError: for a name with no recorded value. **Refusing beats
+            guessing**: an approximated colour renders a plausible picture and
+            returns cleanly, which is the failure mode that costs most here.
+            The message names the escape hatch, since a caller who wants a
+            colour this package does not know can always pass its RGB.
+    """
+    if not isinstance(colour, str):
+        r, g, b = colour
+        return (float(r), float(g), float(b))
+
+    name = colour.strip().lower()
+    if name in _PALETTE:
+        return _PALETTE[name]
+    if name in ("grey", "gray"):
+        return _GREY
+    # PyMOL defines grey00-grey99 (and the `gray` spelling) as a uniform ramp
+    # at NN/100, which is why `grey50` and `grey70` are not table entries: the
+    # rule is exact, so computing it cannot drift from PyMOL the way a
+    # transcribed value can.
+    if name[:4] in ("grey", "gray") and name[4:].isdigit() and len(name[4:]) == 2:
+        level = int(name[4:]) / 100.0
+        return (level, level, level)
+
+    raise ValueError(
+        f"{colour!r} is not a colour this package has a value for. Known names: "
+        f"{', '.join(sorted(_PALETTE))}, and grey00-grey99. Pass an RGB triple "
+        f"in 0-1 for anything else — a Scene carries RGB, so a triple needs no "
+        f"table and works in every viewer. Guessing at the name was rejected "
+        f"deliberately: a wrong colour draws a picture that looks fine."
+    )
 
 
 class Granularity(str, Enum):
@@ -732,4 +813,5 @@ __all__ = [
     "Show",
     "SizeByScalar",
     "Unit",
+    "resolve_colour",
 ]

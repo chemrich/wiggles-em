@@ -59,6 +59,7 @@ from wiggles_em.scene import (
     Show,
     SizeByScalar,
     Unit,
+    resolve_colour,
 )
 
 #: CGO opcodes. PyMOL's own constants, inlined so this module imports nothing
@@ -541,8 +542,12 @@ class PymolBackend:
     def _arrows(self, op: Arrows) -> None:
         buffer: list[float] = []
         for arrow in op.segments:
-            colour = arrow.colour
-            r, g, b = colour if not isinstance(colour, str) else (1.0, 1.0, 1.0)
+            # CGO geometry carries RGB inline, so unlike every other colour op
+            # there is no `color` call to hand a name to. This used to draw a
+            # named colour as **white** — the views all emit RGB, so it only
+            # ever bit a hand-built Scene, silently and in the one op whose
+            # whole point is direction.
+            r, g, b = resolve_colour(arrow.colour)
             shaft_end = tuple(
                 s + (e - s) * 0.75 for s, e in zip(arrow.start, arrow.end, strict=True)
             )
