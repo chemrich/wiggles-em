@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   honour rather than skipping it: a dropped op leaves a picture that looks fine
   and means something else.
 
+- CI, in `.github/workflows/ci.yml`. Ruff and mypy once; the suite on Python
+  3.10, 3.11, 3.12 and 3.13 — the four versions the classifiers advertise and
+  that nothing had ever tested. Three guards, each mutation-tested against the
+  failure it exists to catch: the matrix job asserts it got the interpreter it
+  asked for, collection is floored at 543 so a file that accidentally gains a
+  `network` or `live` marker cannot vanish behind a green tick, and
+  `uv run pytest` must collect the same count as `uv run python -m pytest` —
+  the G9 regression, which silently drops 73 tests when `pythonpath` loses
+  `"."`.
+
 ### Changed
 
 - **The package no longer hosts its own tools.** `tools.py` held MCPymol's

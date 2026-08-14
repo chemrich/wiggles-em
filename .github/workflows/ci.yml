@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint and types
+    runs-on: ubuntu-latest
+    # Once, not per Python version. Ruff pins `target-version = "py310"` and
+    # mypy pins `python_version = "3.10"`, so both answer the same on every
+    # interpreter in the matrix below and running them four times would buy
+    # nothing.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: uv sync
+        # --locked fails if uv.lock has drifted from pyproject.toml, rather
+        # than silently resolving something else and testing that instead.
+        run: uv sync --locked --dev
+      - name: ruff check
+        run: uv run ruff check
+      - name: mypy
+        run: uv run mypy
+
+  tests:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Every version finishes, so one failure shows which versions are
+      # affected instead of only the first to trip.
+      fail-fast: false
+      matrix:
+        # The four the classifiers in pyproject.toml advertise. Until this
+        # workflow existed, nothing tested any of them.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: uv sync
+        run: uv sync --locked --dev
+
+      - name: confirm the interpreter is the one the matrix asked for
+        # A matrix that quietly runs the same interpreter four times looks
+        # exactly like a matrix that works. Assert it, do not assume it.
+        run: |
+          actual=$(uv run python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+          echo "matrix asked for ${{ matrix.python-version }}; uv run gives ${actual}"
+          test "${actual}" = "${{ matrix.python-version }}"
+
+      - name: floor the collected test count
+        # pyproject sets `addopts = "-m 'not network and not live'"`, so a file
+        # that accidentally gains a marker vanishes from the run and CI still
+        # goes green. That is the same shape as the bug where protean's browser
+        # job passed with twenty new tests unexecuted, and it is invisible in a
+        # "N passed" line because N just gets smaller.
+        #
+        # 543 selected of 554 collected, measured 2026-08-14 on 3.10 through
+        # 3.13 (the 11 deselected are test_selection_live.py, which needs a
+        # running PyMOL). Counting `::` nodeids rather than parsing pytest's
+        # summary, because that summary changes wording once nothing is
+        # deselected. Raise the floor when tests are added.
+        run: |
+          floor=543
+          collected=$(uv run pytest --collect-only -q | grep -c '::')
+          echo "collected ${collected} tests, floor is ${floor}"
+          if [ "${collected}" -lt "${floor}" ]; then
+            echo "::error::Collection dropped to ${collected}, below the floor of ${floor}."
+            echo "::error::A test file probably gained a 'network' or 'live' marker, or failed to import."
+            exit 1
+          fi
+
+      - name: collection agrees both ways
+        # This repo has already shipped a commit (G9) where `uv run pytest` and
+        # `uv run python -m pytest` collected different numbers of tests,
+        # because the latter puts the cwd on sys.path and the former does not,
+        # and three test modules import helpers as `tests.conftest`. The
+        # `pythonpath = ["src", "."]` setting in pyproject is the fix; this is
+        # the guard that it stays fixed. Someone will run this suite the way
+        # the README does not happen to say.
+        run: |
+          a=$(uv run pytest --collect-only -q | grep -c '::')
+          b=$(uv run python -m pytest --collect-only -q | grep -c '::')
+          echo "uv run pytest: ${a}; uv run python -m pytest: ${b}"
+          test "${a}" = "${b}"
+
+      - name: pytest
+        # Run it the way the README tells a contributor to run it.
+        run: uv run pytest -q

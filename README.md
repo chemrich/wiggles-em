@@ -1,5 +1,7 @@
 # wiggles-em
 
+[![CI](https://github.com/chemrich/wiggles-em/actions/workflows/ci.yml/badge.svg)](https://github.com/chemrich/wiggles-em/actions/workflows/ci.yml)
+
 Cryo-EM views for the things a structure viewer usually throws away — partial
 occupancy, alternate conformations, ensemble spread, published Q-scores, map
 geometry, the per-voxel resolution field, and the latent spaces of
@@ -87,6 +89,14 @@ uv sync
 uv run pytest          # the whole suite, with no viewer installed
 uv run ruff check
 uv run mypy
+```
+
+CI runs exactly those, on Python 3.10 through 3.13. Two suites stay out of it
+and have to be run by hand:
+
+```bash
+uv run pytest -m live           # drives a running PyMOL; CLEARS ITS SESSION
+WIGGLES_LIVE=1 uv run pytest    # downloads real maps from EMDB
 ```
 
 `FakePort` records commands and replays canned query results, so every view is
