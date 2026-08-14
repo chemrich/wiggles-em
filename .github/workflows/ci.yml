@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded PR runs, but never a run on `main`. Two repos depend on
+  # this package, so "the checks that vouch for this commit were cancelled" is
+  # not an acceptable state for the branch they install from.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+defaults:
+  run:
+    # GitHub's default step shell is `bash -e {0}` — no `pipefail`. That means
+    # in `a=$(cmd | grep -c x)` the pipeline reports *grep's* status, so a
+    # failing `cmd` passes silently. `shell: bash` is `bash --noprofile --norc
+    # -eo pipefail {0}`. The guards below do not rely on this alone, but any
+    # step added later would inherit the trap otherwise.
+    shell: bash
+
+jobs:
+  lint:
+    name: lint and types
+    runs-on: ubuntu-latest
+    # Once, not per Python version. Ruff pins `target-version = "py310"` and
+    # mypy pins `python_version = "3.10"`, so both answer the same on every
+    # interpreter in the matrix below and running them four times would buy
+    # nothing.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          # Pinned so this job does not silently change interpreter when GitHub
+          # bumps `ubuntu-latest`. 3.10 because that is the version both tools
+          # are configured to *analyse* for; running and analysing on the same
+          # version keeps the job's behaviour explainable.
+          python-version: "3.10"
+      - name: uv sync
+        # --locked fails if uv.lock has drifted from pyproject.toml, rather
+        # than silently resolving something else and testing that instead.
+        run: uv sync --locked --dev
+      - name: ruff check
+        run: uv run ruff check
+      - name: mypy
+        run: uv run mypy
+
+  tests:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # Every version finishes, so one failure shows which versions are
+      # affected instead of only the first to trip.
+      fail-fast: false
+      matrix:
+        # The four the classifiers in pyproject.toml advertise. Until this
+        # workflow existed, nothing tested any of them.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: uv sync
+        run: uv sync --locked --dev
+
+      - name: confirm the interpreter is the one the matrix asked for
+        # A matrix that quietly runs the same interpreter four times looks
+        # exactly like a matrix that works. Assert it, do not assume it.
+        run: |
+          actual=$(uv run python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+          echo "matrix asked for ${{ matrix.python-version }}; uv run gives ${actual}"
+          test "${actual}" = "${{ matrix.python-version }}"
+
+      - name: the collected test count is exactly what it should be
+        # pyproject sets `addopts = "-m 'not network and not live'"`, so a file
+        # that accidentally gains a marker leaves the run and CI still goes
+        # green — "N passed" simply gets smaller. Same shape as the bug where
+        # protean's browser job passed with twenty new tests unexecuted.
+        #
+        # 543 selected of 554, measured 2026-08-14 on 3.10 through 3.13; the 11
+        # deselected are test_selection_live.py, which needs a running PyMOL.
+        #
+        # `-ne`, not `-lt`. A floor stops guarding the moment the suite outgrows
+        # it: at 640 tests a whole file could vanish and still clear a floor of
+        # 543. An exact count means adding tests *requires* editing this number,
+        # which is the point — the number is then something a human agreed to.
+        #
+        # The two-step form matters. `n=$(pytest ... | grep -c '::')` reports
+        # grep's status, so a collection error scrolls past while the count
+        # still looks plausible; and `grep -c` exits 1 on zero matches, which
+        # under `-e` kills the step before it can print why. Check pytest's own
+        # status first, then count, tolerating grep's empty-match exit.
+        run: |
+          expected=543
+          if ! out=$(uv run pytest --collect-only -q 2>&1); then
+            echo "::error::pytest could not collect the suite at all — see below."
+            printf '%s\n' "${out}" | tail -25
+            exit 1
+          fi
+          collected=$(printf '%s\n' "${out}" | grep -cE '^[^ ]+::' || true)
+          echo "collected ${collected} tests, expected ${expected}"
+          if [ "${collected}" -ne "${expected}" ]; then
+            echo "::error::Collection is ${collected}, expected ${expected}."
+            echo "::error::If tests were added or removed on purpose, update 'expected' in ci.yml."
+            echo "::error::Otherwise a file gained a 'network' or 'live' marker, or failed to import."
+            exit 1
+          fi
+
+      - name: collection agrees both ways
+        # This repo has already shipped a commit (G9) where `uv run pytest` and
+        # `uv run python -m pytest` disagreed, because the latter puts the cwd
+        # on sys.path and the former does not, and three test modules import
+        # helpers as `tests.conftest`. `pythonpath = ["src", "."]` is the fix;
+        # this is the guard that it stays fixed, for whoever runs the suite the
+        # way the README does not happen to say.
+        run: |
+          if ! a_out=$(uv run pytest --collect-only -q 2>&1); then
+            echo "::error::'uv run pytest' could not collect."
+            printf '%s\n' "${a_out}" | tail -25
+            exit 1
+          fi
+          if ! b_out=$(uv run python -m pytest --collect-only -q 2>&1); then
+            echo "::error::'uv run python -m pytest' could not collect, though 'uv run pytest' could."
+            printf '%s\n' "${b_out}" | tail -25
+            exit 1
+          fi
+          a=$(printf '%s\n' "${a_out}" | grep -cE '^[^ ]+::' || true)
+          b=$(printf '%s\n' "${b_out}" | grep -cE '^[^ ]+::' || true)
+          echo "uv run pytest: ${a}; uv run python -m pytest: ${b}"
+          # Both being zero would satisfy equality while proving nothing.
+          test "${a}" -gt 0
+          test "${a}" = "${b}"
+
+      - name: pytest
+        # Run it the way the README tells a contributor to run it.
+        run: uv run pytest -q
