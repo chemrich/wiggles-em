@@ -98,8 +98,9 @@ per-atom scalar riding the B-factor column of a re-sent display copy, read by
 Mol\*'s `uncertainty` theme.
 
 `altloc_view` is more visually interesting but adds `hide`/`show`/`label`
-without testing anything new about the seam. Volume views are blocked on
-`cryoem-volumes`, which is a protean gap rather than a wiggles-em one.
+without testing anything new about the seam. Volume views were blocked on the
+`cryoem-volumes` branch, which is a protean gap rather than a wiggles-em one;
+it **merged as protean PR #69**, and `Isosurface` now lowers (PR 73).
 
 **Decision: `occupancy_view` end to end, then `altloc_view`, then
 `ensemble_spread_view`.**
@@ -142,14 +143,14 @@ all three were "available".
 | `ColorFlat` | `select` + `color` | available |
 | `ColorByScalar` | `load_structure` + `show` (uncertainty theme) | available |
 | `SizeByScalar` | — | **refuse** — see below |
-| `ColorSurfaceByMap` | `color_by_volume` | `cryoem-volumes` branch |
+| `ColorSurfaceByMap` | `color_by_volume` | **refuse** — needs a volume colour theme |
 | `Opacity` | `select` + `opacity` | available |
 | `Show` | `select` + `show` | available |
 | `Hide` | `select` + `hide` | available **only for `Rep.EVERYTHING`** |
 | `Label` | — | **refuse** — see below |
 | `Delete` | `remove` | available |
 | `Legend` | — (report text, no viewer call) | n/a |
-| `Isosurface` | needs a volume action | `cryoem-volumes` branch |
+| `Isosurface` | volume action + `unit` | available (protean PR 73); **refuse** with a carve |
 | `Frames` | — | refuse |
 | `Morph` | — | refuse |
 | `Arrows` | — | refuse |
@@ -223,13 +224,37 @@ like the other. A vocabulary audit is not an interface audit.
      biotite `AtomArray` into those atoms directly. The plan had budgeted for a
      transport adapter that turns out not to exist — the extraction from
      MCPymol left the atom-based views genuinely viewer-free.
-   - **`Colour` names one viewer's palette.** `Colour = str | tuple`, and every
-     string a view emits is a *PyMOL* colour name — `grey70`, `skyblue`. A
-     second viewer can only honour those by reimplementing PyMOL's table, which
-     is what `_COLOUR_NAMES` in the backend now is. **This is a gap in the seam,
-     not in the viewer**: a viewer-neutral value should not name a viewer.
-     Emitting RGB triples from the views would close it, and `composition_view`
-     and `latent_traverse_view` already do exactly that.
+   - **`Colour` named one viewer's palette. ~~Open.~~ CLOSED 2026-08-14**, in
+     wiggles-em PR #3 (`df2252e`). `Colour = str | tuple`, and every string a
+     view emitted was a *PyMOL* colour name — `grey70`, `skyblue` — which a
+     second viewer could only honour by reimplementing PyMOL's table, which is
+     what `_COLOUR_NAMES` in the backend is. That was a gap in the seam, not in
+     the viewer: a viewer-neutral value should not name a viewer.
+
+     `scene.resolve_colour()` is now the single table and views resolve at the
+     op site, so **a Scene carries only RGB**. Names remain valid *arguments* —
+     a view's signature is not the seam. `ColorByScalar.palette` went the same
+     way: it was a PyMOL *spectrum* name (`blue_white_red`) and is now colour
+     stops, low value first, built by `ramp()`.
+
+     Two corrections to what this section used to say. `latent_traverse_view`
+     did **not** already emit RGB; it emitted its `color="skyblue"` default.
+     And the values themselves were wrong — `skyblue` is PyMOL's
+     `(0.2, 0.5, 0.8)`, not `(0.34, 0.63, 0.83)`, and `lightblue` is
+     `(0.75, 0.75, 1.0)`, not a pale cyan. Both wrong values came from the two
+     tables being consolidated, which **agreed with each other**; that read as
+     corroboration and was one error copied twice.
+     `test_the_palette_matches_pymols_own` now asks a real PyMOL instead.
+
+     **protean must act on this at the pin bump**, and it fails open until it
+     does: `op.palette != "red_white_blue"` compares against a tuple now, so
+     every scene gains a "was not applied" note and the two ramp directions
+     stop being distinguishable. Its note also claims "the ordering and the
+     domain are honoured", which a single-direction `uncertainty` theme cannot
+     deliver for both ramps — that is the real defect, and stops make the
+     direction inspectable so it can refuse instead of drawing backwards.
+     Separately, protean's own `_COLOUR_NAMES` carries the same two wrong
+     values, which is live today regardless of the pin.
 
    Also: **wiggles-em ships no `py.typed`**, so it is fully annotated and
    entirely invisible to mypy. protean carries an override for now; the fix is
@@ -248,6 +273,51 @@ like the other. A vocabulary audit is not an interface audit.
 7. **Re-point `check_spec.py`** (phase 6) once two consumers exist, with
    per-consumer coverage as a separate, weaker check — a tool protean cannot
    host is a known gap, not spec drift.
+
+## What protean asks of wiggles-em
+
+From the protean side's handover, 2026-08-14. These are changes *here*, and the
+first one blocks something rather than merely tidying.
+
+1. **`to_sigma` / `to_absolute` should take measured statistics, not a
+   `MapHeader`** (`density.py:87`, `:103`).
+
+   protean found that Mol\*'s `grid.stats` — the four numbers a viewer reports
+   for a volume — are, for CCP4/MRC, *stored header fields* passed straight
+   through unexamined. A fixture written with deliberately false header
+   statistics (−999 / 999 / 42 / 7) failed on its first run with `min came back
+   as the header's false value -999.0` **and the dimensions correct**, so the
+   volume had genuinely parsed and every number describing it was the file's
+   claim rather than its contents. protean now walks the voxels and reports the
+   header's own four numbers separately under `stated`.
+
+   These converters take a `MapHeader`, so they convert against exactly the
+   numbers shown to be unreliable, and protean holds a trustworthy sigma it
+   cannot hand them. Taking a small stats value instead would let any host feed
+   viewer-measured statistics.
+
+   How far it reaches: **Mol\*'s own default isosurface is `relative: 2`**,
+   computed as `relativeValue * grid.stats.sigma + grid.stats.mean`. Any viewer
+   contouring a map with a stale header puts the surface in the wrong place and
+   it looks entirely normal. This is the σ trap this package already documents,
+   one layer further out than the version we wrote down.
+
+2. **`Isosurface.equivalent` is unused by this backend.** Its docstring says a
+   backend "converts against the volume's header, which it reads from the
+   `load_map` record", and that ensemble frames have no such record — which is
+   what `equivalent` routes around. protean has no such constraint: it reaches
+   computed statistics for any loaded volume, frame or not. Not a request to
+   remove it, since MCPymol may still need it, but **"a backend converts against
+   the header" is no longer true of every backend** and the contract should say
+   so.
+
+3. **The pin is stale, and the colour change makes it urgent.** protean pins
+   `9381dbe`; `main` is well past it. Nothing is broken — protean builds against
+   the pin and its CI is green — but see the `Colour` note in step 2: the palette
+   change fails *open* on protean's side once the pin moves, so the bump and the
+   `molstar.py` guard fix belong in one change.
+
+---
 
 ## Cautions carried from the wiggles-em rounds
 

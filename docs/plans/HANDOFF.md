@@ -13,33 +13,50 @@ and keeps its own copy forever, and the live work is getting protean to consume
 ## Work in `~/code/wiggles-em`. There is one directory now.
 
 Consolidated 2026-08-14. `~/code/wiggles-em` is the working directory for
-everything; `~/code/wiggles` (here) is still the **git home of record** for the
-private material and is where these files are actually version-controlled.
+everything, and **as of 2026-08-14 it is also the git home for the plan** —
+this file included. `~/code/wiggles` remains the git home of record for the
+compendium and the material the publication gate still holds.
 
     ~/code/wiggles-em/
       src/, tests/          tracked, public
-      compendium         -> ../wiggles/compendium
-      docs/plans/*.md    -> ../../../wiggles/*.md      (this file included)
-      tools/compendium   -> ../../wiggles/tools
+      docs/plans/           tracked, public — the plan and method documents,
+                            including this one
+      compendium         -> ../wiggles/compendium          private, gitignored
+      docs/plans/SPEC.md -> ../../../wiggles/SPEC.md       private, gitignored
+        …and PUBLICATION-GATE.md, REPOSITORIES.md, MOVING.md, likewise
+      tools/compendium   -> ../../wiggles/tools            private, gitignored
 
-**Symlinks, not copies**, deliberately: a copy would leave these documents
+The plan moved because keeping it next door made it **stale**: editing it meant
+reaching into another repo, so it did not get edited, and it went on describing
+a closed gap as open. The compendium did not move, because the gate's ten open
+items are exactly the reason it is private — its load-bearing findings rest on
+preprints, and publishing them under this repo's name turns each into a citable
+public assertion.
+
+**Note what publishing the plan disclosed**, since it was a deliberate choice
+and not an oversight: these documents describe protean in detail — its
+op-support table, file paths and known defects — and protean is private, going
+public, not yet flipped.
+
+**`docs/plans` is deny-by-default in `.gitignore`, with the tracked documents
+allow-listed back in.** Not the reverse. This directory is a drop point between
+conversations, and a file left here by one of them carried its own assurance
+that "wiggles-em gitignores this, so nothing here can reach the public repo by
+accident" — true when written, false hours later, and staged by the next
+`git add -A`. An allow-list means a new file stays private until somebody
+deliberately adds a line.
+
+**Symlinks, not copies**, for what remains: a copy would leave those documents
 untracked in a public repo while the version-controlled originals sat next
 door, which is the two-maintained-copies trap this project has already paid for
-twice.
+twice. **No trailing slashes** on their ignore rules — a trailing slash matches
+a directory and not a symlink to one, which is how protean came to commit
+`viewer/node_modules` as a mode-120000 link past its own rule.
 
-**Edit the real path, not the link.** Claude Code's file tools refuse to write
-through a symlink — "Resolve the symlink and pass the real target path
-explicitly" — so a plan-doc edit has to name `~/code/wiggles/<file>.md`. Reads
-work through either path, and so does an ordinary editor; it is only the
-agent's writes that need the real path.
-
-**None of it may be committed to `wiggles-em`.** The rules are in that repo's
-`.gitignore` (on `main` as `2229059`), with **no trailing slashes** — a
-trailing slash matches a directory and not a symlink to one, which is how
-protean came to commit `viewer/node_modules` as a mode-120000 link past its own
-rule. Verified rather than assumed: `git add -A` stages nothing, an explicit
-`git add compendium` is refused, and git will not traverse the link at all
-("beyond a symbolic link").
+**Edit the real path, not the link**, for those four. Claude Code's file tools
+refuse to write through a symlink, so an edit to `SPEC.md` and the other three
+has to name `~/code/wiggles/<file>.md`. The plan documents are ordinary files
+now and need none of that.
 
 ---
 
