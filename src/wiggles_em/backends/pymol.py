@@ -31,7 +31,7 @@ from wiggles_em.bfactors import (
     stash_bfactors,
     stashed_count,
 )
-from wiggles_em.density import to_absolute, to_sigma
+from wiggles_em.density import MapStats, to_absolute, to_sigma
 from wiggles_em.maps import loaded_map
 from wiggles_em.port import PortError, PymolPort, call
 from wiggles_em.scene import (
@@ -490,9 +490,9 @@ class PymolBackend:
                 f"contour at the wrong level without failing."
             )
         converted = (
-            to_sigma(entry.header, level)
+            to_sigma(MapStats.stated(entry.header), level)
             if wanted is Unit.SIGMA
-            else to_absolute(entry.header, level)
+            else to_absolute(MapStats.stated(entry.header), level)
         )
         self.converted[surface] = (level, converted)
         return converted
@@ -538,7 +538,7 @@ class PymolBackend:
         if self.normalised is False:
             sigmas = list(op.breakpoints)
         else:
-            sigmas = [to_sigma(entry.header, point) for point in op.breakpoints]
+            sigmas = [to_sigma(MapStats.stated(entry.header), point) for point in op.breakpoints]
         ramp = f"{op.surface}_ramp"
         colours = [self._colour_name(c) for c in op.palette]
         call(self.port, "ramp_new", ramp, op.volume, sigmas, colours)

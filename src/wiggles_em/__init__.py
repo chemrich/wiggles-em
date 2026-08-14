@@ -49,7 +49,7 @@ from wiggles_em.atoms import Atom, fetch_atoms
 from wiggles_em.bfactors import clear_stash, restore_bfactors
 from wiggles_em.composition import composition_view
 from wiggles_em.deformation import deformation_view
-from wiggles_em.density import density_view, to_absolute, to_sigma
+from wiggles_em.density import MapStats, StatsSource, density_view, to_absolute, to_sigma
 from wiggles_em.ensembles import ensemble_spread_view, morph_states
 from wiggles_em.heterogeneity import Ensemble, Method, load_ensemble, loaded_ensemble
 from wiggles_em.latent import contains_absence_claim, latent_traverse_view
@@ -83,6 +83,8 @@ __all__ = [  # noqa: RUF022
     "read_map_header",
     "to_sigma",
     "to_absolute",
+    "MapStats",
+    "StatsSource",
     "grid_differences",
     "Ensemble",
     "Method",

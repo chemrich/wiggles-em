@@ -22,9 +22,18 @@ needs the map's mean and RMS, which the MRC header carries, which is why
 :func:`density_view` requires the map to have been loaded through
 :func:`wiggles_em.maps.load_map`: without the header it cannot state a level in
 both units, and stating one without saying which is how the mistake happens.
+
+**The header's statistics are a claim, not a measurement**, and the converters
+take a :class:`MapStats` rather than a header so a host that has walked the
+voxels can convert against what it measured. `density_view` here uses
+``MapStats.stated(header)`` — the file's own numbers — because that is all it
+has; the alternative exists for hosts that have more.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
 
 from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import loaded_map
@@ -54,8 +63,12 @@ def usable_rms(header: MapHeader) -> bool:
     saying blue was the best.
 
     Testing ``if not header.rms`` catches only the first of the two.
+
+    Kept for callers that hold a header and nothing else — it is the same rule
+    as :attr:`MapStats.usable` and delegates to it, so the two cannot drift
+    into disagreeing about what a usable RMS is.
     """
-    return header.rms > 0
+    return MapStats.stated(header).usable
 
 
 def rms_meaning(rms: float, *, brief: bool = False) -> str:
@@ -84,37 +97,109 @@ def rms_meaning(rms: float, *, brief: bool = False) -> str:
     )
 
 
-def to_sigma(header: MapHeader, absolute: float) -> float:
+class StatsSource(str, Enum):
+    """Where a sigma scale's two numbers came from.
+
+    Not decoration. A viewer that reports header fields as though it had
+    measured them is the failure this exists to keep visible — see
+    :class:`MapStats`.
+    """
+
+    #: The file's own header said so. A claim, and claims go stale.
+    STATED = "stated"
+    #: Computed from the voxels.
+    MEASURED = "measured"
+
+
+@dataclass(frozen=True)
+class MapStats:
+    """The mean and RMS a sigma scale needs, and where they came from.
+
+    These functions used to take a :class:`MapHeader`, which meant they could
+    only ever convert against the *file's claim* about itself. That is usually
+    fine and occasionally very wrong: a map that has been cropped or rescaled
+    keeps whatever header nobody updated, and the arithmetic proceeds cleanly
+    over numbers that no longer describe the data.
+
+    **The finding that forced this**, from protean: Mol\\*'s ``grid.stats`` are,
+    for CCP4/MRC, stored header fields passed straight through unexamined. A
+    test fixture written with deliberately false statistics failed reporting the
+    header's fake minimum **with the dimensions correct** — so the volume had
+    genuinely parsed, and every number describing it was the file's claim. A
+    host that walks the voxels holds better numbers and, before this, had
+    nowhere to put them.
+
+    How far it reaches: Mol\\*'s default isosurface is ``relative: 2``, computed
+    as ``relativeValue * sigma + mean`` against those same statistics. A stale
+    header therefore misplaces the surface in *any* viewer that trusts it, and
+    the result looks entirely ordinary.
+
+    So the scale carries its :class:`StatsSource`, for the same reason
+    :class:`~wiggles_em.scene.Unit` exists: a level may not be a bare number,
+    and a scale may not be two bare numbers.
+    """
+
+    mean: float
+    rms: float
+    source: StatsSource
+
+    @classmethod
+    def stated(cls, header: MapHeader) -> MapStats:
+        """The file's own claim. Named rather than implicit, so that taking it
+        is a visible choice — it is the right one whenever nothing has measured
+        the voxels, which is most of the time."""
+        return cls(mean=header.dmean, rms=header.rms, source=StatsSource.STATED)
+
+    @classmethod
+    def measured(cls, *, mean: float, rms: float) -> MapStats:
+        """Statistics computed from the data. Keyword-only: ``mean`` and
+        ``rms`` are both floats in the same range and transposing them is
+        silent."""
+        return cls(mean=mean, rms=rms, source=StatsSource.MEASURED)
+
+    @property
+    def usable(self) -> bool:
+        """Can these numbers define a sigma scale? See :func:`usable_rms` for
+        why a *negative* RMS is the dangerous case rather than zero."""
+        return self.rms > 0
+
+
+def to_sigma(stats: MapStats, absolute: float) -> float:
     """Convert an absolute map value to sigma units.
 
+    Takes a :class:`MapStats` rather than a :class:`MapHeader` so that a host
+    which has measured the voxels can convert against what it measured. Pass
+    ``MapStats.stated(header)`` to use the file's own claim.
+
     Raises:
-        ValueError: the header's RMS cannot define a sigma scale — see
-            :func:`usable_rms`.
+        ValueError: the RMS cannot define a sigma scale — see :func:`usable_rms`.
     """
-    if not usable_rms(header):
+    if not stats.usable:
         raise ValueError(
-            f"header reports rms={header.rms:g}, so sigma is undefined and an "
-            f"absolute level cannot be converted: {rms_meaning(header.rms)}. "
-            f"Give the level in absolute units instead."
+            f"{stats.source.value} statistics report rms={stats.rms:g}, so sigma "
+            f"is undefined and an absolute level cannot be converted: "
+            f"{rms_meaning(stats.rms)}. Give the level in absolute units "
+            f"instead, or supply measured statistics if you have them."
         )
-    return (absolute - header.dmean) / header.rms
+    return (absolute - stats.mean) / stats.rms
 
 
-def to_absolute(header: MapHeader, sigma: float) -> float:
+def to_absolute(stats: MapStats, sigma: float) -> float:
     """Convert a sigma level back to an absolute map value.
 
     Raises:
-        ValueError: the header's RMS cannot define a sigma scale, so there is
-            no sigma to convert *from* — see :func:`usable_rms`. Returning
-            ``dmean + sigma * rms`` on a negative RMS hands back a number of
-            the right shape and the wrong sign, which is the harder failure.
+        ValueError: the RMS cannot define a sigma scale, so there is no sigma
+            to convert *from* — see :func:`usable_rms`. Returning
+            ``mean + sigma * rms`` on a negative RMS hands back a number of the
+            right shape and the wrong sign, which is the harder failure.
     """
-    if not usable_rms(header):
+    if not stats.usable:
         raise ValueError(
-            f"header reports rms={header.rms:g}, so sigma is undefined and a "
-            f"sigma level has no absolute equivalent: {rms_meaning(header.rms)}."
+            f"{stats.source.value} statistics report rms={stats.rms:g}, so sigma "
+            f"is undefined and a sigma level has no absolute equivalent: "
+            f"{rms_meaning(stats.rms)}."
         )
-    return header.dmean + sigma * header.rms
+    return stats.mean + sigma * stats.rms
 
 
 def density_view(
@@ -173,14 +258,14 @@ def density_view(
         sigma = DEFAULT_SIGMA
         absolute: float | None = None
     elif units == "absolute":
-        sigma = to_sigma(header, float(level))  # type: ignore[arg-type]
+        sigma = to_sigma(MapStats.stated(header), float(level))  # type: ignore[arg-type]
         absolute = float(level)  # type: ignore[arg-type]
     else:
         sigma = float(level)  # type: ignore[arg-type]
         absolute = None
 
     if absolute is None and usable_rms(header):
-        absolute = to_absolute(header, sigma)
+        absolute = to_absolute(MapStats.stated(header), sigma)
 
     mesh = name or f"{map_obj}_mesh"
     # Emitted in sigma because that is what was resolved above for the report;

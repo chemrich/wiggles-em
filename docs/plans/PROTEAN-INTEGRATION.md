@@ -279,8 +279,18 @@ like the other. A vocabulary audit is not an interface audit.
 From the protean side's handover, 2026-08-14. These are changes *here*, and the
 first one blocks something rather than merely tidying.
 
-1. **`to_sigma` / `to_absolute` should take measured statistics, not a
-   `MapHeader`** (`density.py:87`, `:103`).
+1. ~~**`to_sigma` / `to_absolute` should take measured statistics, not a
+   `MapHeader`**~~ **DONE 2026-08-15.** They take a `MapStats` — `mean`, `rms`,
+   and a `StatsSource` of `STATED` or `MEASURED`. `MapStats.stated(header)`
+   takes the file's claim and is what every caller in this package uses;
+   `MapStats.measured(mean=…, rms=…)` is the one protean wanted, and a host
+   that has walked the voxels can now convert against what it measured — including
+   for a map whose header says `rms=-1`, which no header-based call could convert
+   at all. The source is carried rather than inferred, for the same reason
+   `Unit` exists: a level may not be a bare number, and a scale may not be two
+   bare numbers.
+
+   The original ask, for the record.
 
    protean found that Mol\*'s `grid.stats` — the four numbers a viewer reports
    for a volume — are, for CCP4/MRC, *stored header fields* passed straight

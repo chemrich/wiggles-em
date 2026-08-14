@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from wiggles_em.density import (
     DEFAULT_SIGMA,
+    MapStats,
     rms_meaning,
     to_absolute,
     to_sigma,
@@ -122,7 +123,7 @@ def frame_levels(ensemble: Ensemble, absolute: float) -> list[float | None]:
     levels: list[float | None] = []
     for header in ensemble.headers:
         try:
-            levels.append(to_sigma(header, absolute))
+            levels.append(to_sigma(MapStats.stated(header), absolute))
         except ValueError:
             levels.append(None)
     return levels
@@ -230,7 +231,7 @@ def latent_traverse_view(
     if level is None:
         if anchor is None:
             raise no_usable_rms
-        absolute = to_absolute(anchor, DEFAULT_SIGMA)
+        absolute = to_absolute(MapStats.stated(anchor), DEFAULT_SIGMA)
         used_default = True
     elif units == "absolute":
         absolute = float(level)
@@ -238,7 +239,7 @@ def latent_traverse_view(
     else:
         if anchor is None:
             raise no_usable_rms
-        absolute = to_absolute(anchor, float(level))
+        absolute = to_absolute(MapStats.stated(anchor), float(level))
         used_default = False
 
     levels = frame_levels(ensemble, absolute)

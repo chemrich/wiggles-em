@@ -6,7 +6,13 @@ import pytest
 from conftest import render
 from test_mapinfo import write_map
 
-from wiggles_em.density import DEFAULT_SIGMA, density_view, to_absolute, to_sigma
+from wiggles_em.density import (
+    DEFAULT_SIGMA,
+    MapStats,
+    density_view,
+    to_absolute,
+    to_sigma,
+)
 from wiggles_em.mapinfo import read_map_header
 from wiggles_em.maps import forget_map, load_map
 from wiggles_em.port import FakePort, PortError
@@ -45,13 +51,15 @@ def loaded(tmp_path):
 def test_sigma_and_absolute_are_inverses(loaded):
     _, _, header = loaded()
     for sigma in (0.0, 1.5, 3.16, -2.0):
-        assert to_sigma(header, to_absolute(header, sigma)) == pytest.approx(sigma)
+        assert to_sigma(
+            MapStats.stated(header), to_absolute(MapStats.stated(header), sigma)
+        ) == pytest.approx(sigma)
 
 
 def test_absolute_to_sigma_uses_mean_and_rms(loaded):
     """dmean=0, rms=0.5 in the fixture, so 1.0 absolute is 2 sigma."""
     _, _, header = loaded()
-    assert to_sigma(header, 1.0) == pytest.approx(2.0)
+    assert to_sigma(MapStats.stated(header), 1.0) == pytest.approx(2.0)
 
 
 def test_zero_rms_cannot_be_converted(tmp_path):
@@ -60,7 +68,7 @@ def test_zero_rms_cannot_be_converted(tmp_path):
     header = read_map_header(path)
     header = type(header)(**{**header.__dict__, "rms": 0.0})
     with pytest.raises(ValueError, match="sigma is undefined"):
-        to_sigma(header, 1.0)
+        to_sigma(MapStats.stated(header), 1.0)
 
 
 def test_real_emdb_contour_converts_to_a_sensible_sigma(loaded):
@@ -68,7 +76,7 @@ def test_real_emdb_contour_converts_to_a_sensible_sigma(loaded):
     3.16 sigma against its real header — not 0.05 sigma."""
     _, _, header = loaded()
     header = type(header)(**{**header.__dict__, "dmean": 0.000921512, "rms": 0.0155224})
-    assert to_sigma(header, 0.05) == pytest.approx(3.16, abs=0.01)
+    assert to_sigma(MapStats.stated(header), 0.05) == pytest.approx(3.16, abs=0.01)
 
 
 # ── the view ────────────────────────────────────────────────────────────────
@@ -202,15 +210,15 @@ def test_to_sigma_and_to_absolute_both_reject_it(tmp_path):
     header = read_map_header(write_map(tmp_path, "stale.mrc", rms=-1.0))
 
     with pytest.raises(ValueError, match="never computed"):
-        to_sigma(header, 0.05)
+        to_sigma(MapStats.stated(header), 0.05)
     with pytest.raises(ValueError, match="never computed"):
-        to_absolute(header, 1.5)
+        to_absolute(MapStats.stated(header), 1.5)
 
 
 def test_zero_rms_is_still_rejected(tmp_path):
     header = read_map_header(write_map(tmp_path, "flat.mrc", rms=0.0))
     with pytest.raises(ValueError, match="flat map"):
-        to_sigma(header, 0.05)
+        to_sigma(MapStats.stated(header), 0.05)
 
 
 def test_an_uncomputed_rms_is_not_reported_as_zero(tmp_path, loaded):

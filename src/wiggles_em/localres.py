@@ -48,6 +48,7 @@ from itertools import pairwise
 from wiggles_em.density import (
     DEFAULT_CARVE,
     DEFAULT_SIGMA,
+    MapStats,
     rms_meaning,
     to_absolute,
     to_sigma,
@@ -344,7 +345,7 @@ def local_resolution_view(
         sigmas = list(points)
     else:
         try:
-            sigmas = [to_sigma(res.header, p) for p in points]
+            sigmas = [to_sigma(MapStats.stated(res.header), p) for p in points]
         except ValueError as exc:
             return "\n".join(
                 [
@@ -385,8 +386,9 @@ def local_resolution_view(
     contour_sigma: float | None
     contour_absolute: float | None
     if usable_rms(main.header):
-        contour_sigma = contour if contour_unit is Unit.SIGMA else to_sigma(main.header, contour)
-        contour_absolute = to_absolute(main.header, contour_sigma)
+        main_stats = MapStats.stated(main.header)
+        contour_sigma = contour if contour_unit is Unit.SIGMA else to_sigma(main_stats, contour)
+        contour_absolute = to_absolute(main_stats, contour_sigma)
     else:
         contour_sigma = contour if contour_unit is Unit.SIGMA else None
         contour_absolute = contour if contour_unit is Unit.ABSOLUTE else None
