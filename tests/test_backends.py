@@ -198,9 +198,7 @@ class TestFramesEdgeCases:
         """`max()` over no frames raised ValueError — an internal error escaping
         as the viewer's answer."""
         port = FakePort()
-        PymolBackend(port, normalised=None).render(
-            Scene([Frames((), (), build_timeline=True)])
-        )
+        PymolBackend(port, normalised=None).render(Scene([Frames((), (), build_timeline=True)]))
 
         assert not port.calls("mdo"), port.call_log
         assert not port.calls("mset"), port.call_log
@@ -267,9 +265,11 @@ def test_a_carried_equivalent_is_recorded_like_any_other_conversion():
     port = FakePort()
     backend = PymolBackend(port, normalised=False)
     backend.render(
-        Scene([
-            Isosurface("s", "ens_f01", level=1.5, unit=Unit.SIGMA, equivalent=0.75),
-        ])
+        Scene(
+            [
+                Isosurface("s", "ens_f01", level=1.5, unit=Unit.SIGMA, equivalent=0.75),
+            ]
+        )
     )
 
     # Keyed by surface name, not volume — see TestConvertedIsKeyedTheWayItIsDocumented.
@@ -378,10 +378,12 @@ class TestConvertedIsKeyedTheWayItIsDocumented:
         port = FakePort()
         backend = PymolBackend(port, normalised=False)
         backend.render(
-            Scene([
-                Isosurface("low", "vol", level=1.0, unit=Unit.SIGMA, equivalent=0.5),
-                Isosurface("high", "vol", level=3.0, unit=Unit.SIGMA, equivalent=1.5),
-            ])
+            Scene(
+                [
+                    Isosurface("low", "vol", level=1.0, unit=Unit.SIGMA, equivalent=0.5),
+                    Isosurface("high", "vol", level=3.0, unit=Unit.SIGMA, equivalent=1.5),
+                ]
+            )
         )
 
         assert backend.converted["low"] == (1.0, 0.5)

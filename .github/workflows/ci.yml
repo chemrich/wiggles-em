@@ -45,6 +45,12 @@ jobs:
         run: uv sync --locked --dev
       - name: ruff check
         run: uv run ruff check
+      - name: ruff format
+        # No path arguments, matching `ruff check` above: ruff reads its own
+        # config and this repo has only `src/` and `tests/`. If a `docs/` with
+        # example code ever appears, scope both commands rather than letting
+        # the formatter loose on prose.
+        run: uv run ruff format --check
       - name: mypy
         run: uv run mypy
 

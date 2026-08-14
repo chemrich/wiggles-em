@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pipe reports `grep`'s status and would let a collection error read as a
   plausible-looking number.
 
+- `ruff format --check` in CI, and the 16 of 44 files that had drifted are
+  formatted. The README never listed `ruff format`, so it had never run here
+  and nothing was enforcing it. Behaviour-neutral: the suite reports the same
+  524 passed, 19 skipped, 11 deselected before and after.
+
 ### Changed
 
 - **The package no longer hosts its own tools.** `tools.py` held MCPymol's

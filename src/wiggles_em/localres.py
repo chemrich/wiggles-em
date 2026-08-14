@@ -195,7 +195,6 @@ def _breakpoints(header: MapHeader, breaks: list[float] | None) -> tuple[list[fl
     return [best + step * i for i in range(n)], note
 
 
-
 def _require_loaded(obj: str, role: str) -> LoadedMap:
     record = loaded_map(obj)
     if record is None:
@@ -374,9 +373,7 @@ def local_resolution_view(
     contour_sigma: float | None
     contour_absolute: float | None
     if usable_rms(main.header):
-        contour_sigma = (
-            contour if contour_unit is Unit.SIGMA else to_sigma(main.header, contour)
-        )
+        contour_sigma = contour if contour_unit is Unit.SIGMA else to_sigma(main.header, contour)
         contour_absolute = to_absolute(main.header, contour_sigma)
     else:
         contour_sigma = contour if contour_unit is Unit.SIGMA else None
@@ -443,8 +440,7 @@ def local_resolution_view(
         remedies = []
         if reload_works:
             remedies += [
-                f"  Reload the map with normalisation {flip} "
-                f"(`set normalize_ccp4_maps, {flip}`",
+                f"  Reload the map with normalisation {flip} (`set normalize_ccp4_maps, {flip}`",
                 f"  before loading): {'a' if keeps == 'sigma' else 'an'} {keeps} level then "
                 f"needs no conversion",
                 "  at all, which keeps the level you asked for.",
@@ -510,20 +506,22 @@ def local_resolution_view(
     # from the density map's contour level, which is the half of the sigma trap
     # that is easiest to miss. `sigmas` above exists only so the report can
     # show the reader both.
-    scene = Scene([
-        Isosurface(
-            surface,
-            map_obj,
-            level=contour,
-            unit=contour_unit,
-            equivalent=(contour_absolute if contour_unit is Unit.SIGMA else contour_sigma),
-            style=Rep.SURFACE,
-            carve_around=Sel.raw(selection) if selection else None,
-            carve_radius=carve if selection else None,
-        ),
-        ColorSurfaceByMap(surface, res_obj, tuple(points), tuple(colours)),
-        Legend(LOCAL_RESOLUTION_LEGEND),
-    ])
+    scene = Scene(
+        [
+            Isosurface(
+                surface,
+                map_obj,
+                level=contour,
+                unit=contour_unit,
+                equivalent=(contour_absolute if contour_unit is Unit.SIGMA else contour_sigma),
+                style=Rep.SURFACE,
+                carve_around=Sel.raw(selection) if selection else None,
+                carve_radius=carve if selection else None,
+            ),
+            ColorSurfaceByMap(surface, res_obj, tuple(points), tuple(colours)),
+            Legend(LOCAL_RESOLUTION_LEGEND),
+        ]
+    )
 
     # Reports the RMS it actually saw. Hard-coding "rms=0" told a reader with an
     # rms=-1 header — statistics never computed, a different problem with a

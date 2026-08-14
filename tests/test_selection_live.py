@@ -199,7 +199,9 @@ def hydro():
 def _read(port, expr="(rank, index, b)"):
     """Rows keyed by b-factor, which is unique per atom here and never moves."""
     rows = call(port, "iterate_to_list", HYDRO_OBJ, expr)
-    flat = [r[0] if isinstance(r, list) and len(r) == 1 and isinstance(r[0], list) else r for r in rows]
+    flat = [
+        r[0] if isinstance(r, list) and len(r) == 1 and isinstance(r[0], list) else r for r in rows
+    ]
     return {row[2]: (row[0], row[1]) for row in flat}
 
 

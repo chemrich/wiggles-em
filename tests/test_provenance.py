@@ -233,9 +233,7 @@ class TestCategoryPriorityFollowsTheEnum:
             "3dflex_deepemhancer.mrc",
         ],
     )
-    def test_a_generated_volume_stays_generated_after_network_enhancement(
-        self, tmp_path, filename
-    ):
+    def test_a_generated_volume_stays_generated_after_network_enhancement(self, tmp_path, filename):
         assert self._suggest(tmp_path, filename) is Provenance.GENERATED, (
             f"{filename} lost its GENERATED label. A decoder volume that was "
             f"then network-enhanced is still a volume no particle was "

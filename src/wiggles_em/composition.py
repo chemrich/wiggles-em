@@ -202,9 +202,7 @@ def composition_view(
             # ANDing it with a part matched nothing for every part but the one
             # holding atom 0 — and usually not even that, since atom 0 is
             # rarely a CA. `first` narrows within the selection it is given.
-            ops.append(
-                Label(Sel.first(part & Sel.prop("name", "CA")), f"{fraction:.0%}")
-            )
+            ops.append(Label(Sel.first(part & Sel.prop("name", "CA")), f"{fraction:.0%}"))
     ops.append(Legend(SENSE_2_LEGEND, sense=Sense.PARTICLE_COMPOSITION))
 
     return _report(obj, parsed, counts, transparency), Scene(ops)

@@ -122,8 +122,7 @@ def test_2_atom_identity_is_keyed_on_the_field_that_removal_does_not_renumber():
     fields = [f.strip() for f in ATOM_EXPR.split(",")]
     assert "rank" in fields, f"the iterate expression does not request rank: {ATOM_EXPR}"
     assert "index" not in fields, (
-        f"the iterate expression still requests index, which a removal "
-        f"renumbers: {ATOM_EXPR}"
+        f"the iterate expression still requests index, which a removal renumbers: {ATOM_EXPR}"
     )
 
     atom = make_atoms([("A", "1", "MET", "CA", "", 1.0, 11.0)])[0]
