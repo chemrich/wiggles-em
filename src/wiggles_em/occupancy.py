@@ -121,14 +121,16 @@ def occupancy_view(atoms: list[Atom], obj: str) -> tuple[str, Scene]:
 
     target = Sel.obj(obj)
     field = ScalarField.per_atom([(a.key, a.q) for a in atoms])
-    scene = Scene([
-        ColorByScalar(target, field, domain=(0.0, 1.0), palette="red_white_blue"),
-        # Partial atoms shown as sticks so they read as "modelled alternative"
-        # rather than as the single truth. Note this must NOT exclude protein:
-        # side-chain alternates are the main thing this view exists to show.
-        Show(target & Sel.lt("q", FULL_OCCUPANCY), Rep.STICKS),
-        legend,
-    ])
+    scene = Scene(
+        [
+            ColorByScalar(target, field, domain=(0.0, 1.0), palette="red_white_blue"),
+            # Partial atoms shown as sticks so they read as "modelled alternative"
+            # rather than as the single truth. Note this must NOT exclude protein:
+            # side-chain alternates are the main thing this view exists to show.
+            Show(target & Sel.lt("q", FULL_OCCUPANCY), Rep.STICKS),
+            legend,
+        ]
+    )
 
     lines += [
         f"  {st['n_partial']} of {st['n_atoms']} atoms partially occupied (q < {FULL_OCCUPANCY}).",

@@ -186,18 +186,20 @@ def density_view(
     # Emitted in sigma because that is what was resolved above for the report;
     # tagging the unit is what stops a backend guessing. A viewer that wants
     # absolute converts, rather than every view remembering to.
-    scene = Scene([
-        Isosurface(
-            mesh,
-            map_obj,
-            level=sigma,
-            unit=Unit.SIGMA,
-            style=Rep.MESH,
-            carve_around=Sel.raw(selection),
-            carve_radius=carve,
-        ),
-        Legend(provenance_banner(map_obj), provenance=map_obj),
-    ])
+    scene = Scene(
+        [
+            Isosurface(
+                mesh,
+                map_obj,
+                level=sigma,
+                unit=Unit.SIGMA,
+                style=Rep.MESH,
+                carve_around=Sel.raw(selection),
+                carve_radius=carve,
+            ),
+            Legend(provenance_banner(map_obj), provenance=map_obj),
+        ]
+    )
 
     # Reports the rms it actually saw, and what that value means. Hard-coding
     # "rms=0" told a reader with MRC's "statistics not computed" sentinel that
@@ -232,8 +234,7 @@ def density_view(
                 "",
                 f"  {accession} has an author-recommended contour published by the",
                 "  depositor. It is an ABSOLUTE value, so pass it as:",
-                f"      density_view({map_obj!r}, {selection!r}, "
-                f"level=<value>, units='absolute')",
+                f"      density_view({map_obj!r}, {selection!r}, level=<value>, units='absolute')",
                 "  Retrieve it from:",
                 f"      https://www.ebi.ac.uk/emdb/api/entry/{accession}"
                 "  ->  map.contour_list.contour[].level",

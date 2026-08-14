@@ -398,7 +398,11 @@ def _ensemble(kind, *, n_atoms=60, n_states=2, noise=0.05, drift=1.0, flex=3.0, 
                 r = math.hypot(x, y) or 1.0
                 dx, dy, dz = x / r * flex * f, y / r * flex * f, 0.0
             frame.append(
-                (x + dx + rng.gauss(0, noise), y + dy + rng.gauss(0, noise), z + dz + rng.gauss(0, noise))
+                (
+                    x + dx + rng.gauss(0, noise),
+                    y + dy + rng.gauss(0, noise),
+                    z + dz + rng.gauss(0, noise),
+                )
             )
         states.append(frame)
     return states

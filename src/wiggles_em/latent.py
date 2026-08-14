@@ -240,9 +240,7 @@ def latent_traverse_view(
         for number, (obj, sigma) in enumerate(zip(ensemble.objects, levels, strict=True), start=1)
         if sigma is not None
     ]
-    skipped_frames = [
-        number for number, sigma in enumerate(levels, start=1) if sigma is None
-    ]
+    skipped_frames = [number for number, sigma in enumerate(levels, start=1) if sigma is None]
     if not usable:
         raise PortError(
             f"no frame of {ensemble_name!r} has a usable RMS in its header, so an "

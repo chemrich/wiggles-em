@@ -316,7 +316,10 @@ class PymolBackend:
         the PyMOL side — the identical trick ``restore_bfactors`` uses, and
         deliberately the same so one atom has one key everywhere.
         """
-        flat = {"|".join(str(part) for part in key): value for key, value in zip(field.keys, field.values, strict=True)}
+        flat = {
+            "|".join(str(part) for part in key): value
+            for key, value in zip(field.keys, field.values, strict=True)
+        }
         # do(), not a structured call: this assigns into a namespace rather
         # than invoking a cmd function, which is one of the few things that has
         # no structured equivalent.
@@ -411,9 +414,7 @@ class PymolBackend:
         try:
             return _REPS[rep]
         except KeyError:
-            raise Refused(
-                f"PyMOL has no {rep.value!r} representation for a selection"
-            ) from None
+            raise Refused(f"PyMOL has no {rep.value!r} representation for a selection") from None
 
     def _label(self, op: Label) -> None:
         # PyMOL evaluates a Python expression against each atom, so field names
@@ -594,8 +595,10 @@ class PymolBackend:
             # (PyMOL runs an mdo when its frame is *entered*, so jumping into
             # the middle of a gap run must still clear the view), but the
             # identical gap command is built once rather than 490 times.
-            others = all_disabled if name is None else "; ".join(
-                f"disable {other}" for other in op.names if other != name
+            others = (
+                all_disabled
+                if name is None
+                else "; ".join(f"disable {other}" for other in op.names if other != name)
             )
             # A skipped frame disables everything rather than being left out of
             # the timeline. Omitting it would leave the previous frame's surface

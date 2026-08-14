@@ -88,18 +88,19 @@ pip install wiggles-em
 uv sync
 uv run pytest          # the whole suite, with no viewer installed
 uv run ruff check
+uv run ruff format     # --check in CI; run it without --check before pushing
 uv run mypy
 ```
 
-CI runs all three: `pytest` on Python 3.10, 3.11, 3.12 and 3.13, and `ruff` and
+CI runs all four: `pytest` on Python 3.10, 3.11, 3.12 and 3.13, and `ruff` and
 `mypy` once each — both are configured to target 3.10 regardless of the
 interpreter they run on, so a matrix would repeat one answer four times.
 
 Two suites stay out of CI and have to be run by hand:
 
 ```bash
-uv run pytest -m live           # drives a running PyMOL; CLEARS ITS SESSION
-WIGGLES_LIVE=1 uv run pytest    # downloads real maps from EMDB
+uv run pytest -m live      # drives a running PyMOL; CLEARS ITS SESSION
+uv run pytest -m network   # downloads real maps from EMDB; run before a release
 ```
 
 `FakePort` records commands and replays canned query results, so every view is

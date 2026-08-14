@@ -113,7 +113,9 @@ def render(result, rows=(), *, port=None, preserve_bfactors: bool = True, normal
     return Drawn(report, scene, port, pymol, fake)
 
 
-def draw(view, rows, *args, preserve_bfactors: bool = True, port=None, normalised=None, **kwargs) -> Drawn:
+def draw(
+    view, rows, *args, preserve_bfactors: bool = True, port=None, normalised=None, **kwargs
+) -> Drawn:
     """Run an atoms-first view over ``rows`` and render what it returned."""
     return render(
         view(make_atoms(rows), *args, **kwargs),

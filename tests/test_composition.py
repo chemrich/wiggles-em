@@ -110,9 +110,7 @@ def test_the_legend_names_sense_2_and_disclaims_q():
     assert "occupancy_view" in out, "the reader must be pointed at sense 1"
     # Declared on the scene as well, so the two senses can never be told apart
     # by prose alone.
-    assert all(
-        legend.sense is Sense.PARTICLE_COMPOSITION for legend in d.scene.legends
-    ), d.scene
+    assert all(legend.sense is Sense.PARTICLE_COMPOSITION for legend in d.scene.legends), d.scene
 
 
 def test_the_estimate_is_not_presented_as_measured():
@@ -249,6 +247,6 @@ def test_the_label_selection_can_match_an_atom_in_every_part():
     for op in labels:
         kinds = [s.kind for s in op.sel.walk()]
         assert "first" in kinds, f"no first-atom narrowing in {op.sel}"
-        assert not any(
-            s.kind == "prop" and s.key == "rank" for s in op.sel.walk()
-        ), "rank is object-wide and cannot narrow a part"
+        assert not any(s.kind == "prop" and s.key == "rank" for s in op.sel.walk()), (
+            "rank is object-wide and cannot narrow a part"
+        )

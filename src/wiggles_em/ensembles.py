@@ -325,7 +325,7 @@ def ensemble_spread_view(
                     "  positional spread with no internal rearrangement under it is a",
                     "  rigid offset between the states, not flexibility. Fit them onto a",
                     "  common frame and measure again; the number above is not a",
-                    "  conformational quantity."
+                    "  conformational quantity.",
                 ]
                 if rigid_dominated
                 else []

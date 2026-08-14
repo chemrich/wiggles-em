@@ -266,8 +266,7 @@ class TestTheRemedyTheNotePrintsActuallyWorks:
 
         for name in named:
             assert hasattr(wiggles_em, name), (
-                f"the note tells the user to call {name}(), which the package "
-                f"does not export"
+                f"the note tells the user to call {name}(), which the package does not export"
             )
 
     def test_following_the_remedy_restores_the_ability_to_preserve(self):
@@ -418,14 +417,16 @@ def test_a_reused_backend_reports_each_render_afresh():
 
     rows = [("A", "1", "MET", "CA", "", 1.0, 11.0, "m", 1)]
     port = FakePort({"iterate_to_list": rows})
-    scene = Scene([ColorByScalar(Sel.obj("m"), ScalarField.per_atom([(("m", "1"), 0.5)]), (0.0, 1.0))])
+    scene = Scene(
+        [ColorByScalar(Sel.obj("m"), ScalarField.per_atom([(("m", "1"), 0.5)]), (0.0, 1.0))]
+    )
 
     mark_bfactors_destroyed("m")
     backend = PymolBackend(port, preserve_bfactors=True, normalised=None)
     backend.render(scene)
     assert "gone from this session" in "\n".join(backend.notes)
 
-    clear_stash("m")          # the user follows exactly the advice they were given
+    clear_stash("m")  # the user follows exactly the advice they were given
     backend.render(scene)
 
     assert has_stash("m"), "precondition: the second render really did stash"

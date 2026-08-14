@@ -353,9 +353,9 @@ def test_the_ramp_is_attached_to_the_surface(session):
     # "colour this surface by that volume". Mol* has no ramp at all.
     (op,) = d.scene.of(ColorSurfaceByMap)
     assert (op.surface, op.volume) == ("main_localres", "locres")
-    assert d.port.called(
-        "set", "surface_color", "main_localres_ramp", "main_localres"
-    ), d.port.call_log
+    assert d.port.called("set", "surface_color", "main_localres_ramp", "main_localres"), (
+        d.port.call_log
+    )
     assert "deleting it un-colours it" in d.notes
 
 
@@ -755,7 +755,10 @@ class TestEveryRefusalOffersATakeableRemedy:
     CASES: ClassVar[tuple[tuple[str, dict], ...]] = (
         ("defaulted sigma, normalisation off", dict(normalised=False)),
         ("explicit sigma, normalisation off", dict(normalised=False, level=2.0, units="sigma")),
-        ("explicit absolute, normalisation on", dict(normalised=True, level=0.05, units="absolute")),
+        (
+            "explicit absolute, normalisation on",
+            dict(normalised=True, level=0.05, units="absolute"),
+        ),
         ("explicit absolute, setting unknown", dict(normalised=None, level=0.05, units="absolute")),
     )
 
@@ -777,7 +780,7 @@ class TestEveryRefusalOffersATakeableRemedy:
 
     @pytest.mark.parametrize("label,kwargs", CASES, ids=[c[0] for c in CASES])
     def test_restating_is_described_as_choosing_a_new_value(self, tmp_path, label, kwargs):
-        """"Pass the level with units='absolute' instead" reads as restating
+        """ "Pass the level with units='absolute' instead" reads as restating
         the same level in other units. That is the one thing the unusable rms
         makes impossible."""
         self._maps(tmp_path)
