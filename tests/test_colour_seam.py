@@ -29,11 +29,17 @@ import pytest
 from tests.conftest import make_atoms
 from wiggles_em.occupancy import altloc_view, occupancy_view
 from wiggles_em.scene import (
+    BLUE_WHITE_RED,
+    RED_WHITE_BLUE,
+    RED_YELLOW_GREEN,
     Arrow,
+    ColorByScalar,
     ColorFlat,
     ColorSurfaceByMap,
+    ScalarField,
     Scene,
     Sel,
+    ramp,
     resolve_colour,
 )
 
@@ -202,6 +208,125 @@ def test_a_named_arrow_colour_reaches_pymol_as_that_colour():
     buffer = d.port.calls("load_cgo")[0][0][0]
     assert tuple(buffer[8:11]) == (1.0, 0.0, 0.0), "red arrow did not reach PyMOL as red"
     assert tuple(buffer[8:11]) != (1.0, 1.0, 1.0), "still substituting white"
+
+
+# ── scalar ramps ────────────────────────────────────────────────────────────
+
+
+def test_ramp_reads_pymols_underscore_spelling():
+    assert ramp("blue_white_red") == ((0.0, 0.0, 1.0), (1.0, 1.0, 1.0), (1.0, 0.0, 0.0))
+
+
+def test_ramp_needs_something_to_interpolate_between():
+    with pytest.raises(ValueError, match="at least two stops"):
+        ramp("red")
+
+
+def test_the_two_default_ramps_are_exact_reverses():
+    """The fact that makes the reversal detectable. A viewer with one fixed
+    ramp can honour exactly one of these, and until the stops were in the Scene
+    it had no way to tell which it had been handed."""
+    assert tuple(reversed(BLUE_WHITE_RED)) == RED_WHITE_BLUE
+
+
+def test_a_palette_name_is_refused_with_the_remedy():
+    """A bare string is the trap: it is iterable, so it would silently become
+    one stop per *character*."""
+    field = ScalarField.per_atom([(("m", "0"), 1.0)])
+    with pytest.raises(ValueError, match="ramp"):
+        ColorByScalar(Sel.obj("o"), field, (0.0, 1.0), palette="red_white_blue")
+
+
+def test_ramp_direction_survives_the_trip_to_pymol():
+    """End to end: a scene asking for blue→red must reach `spectrum` as a
+    palette whose first stop is blue and last is red. Ordering is the whole
+    claim — reversing it reverses the reading of every number on screen while
+    the render looks entirely normal."""
+    from tests.conftest import render
+
+    field = ScalarField.per_atom([(("m", "0"), 1.0)])
+    scene = Scene([ColorByScalar(Sel.obj("obj"), field, (0.0, 1.0), palette=BLUE_WHITE_RED)])
+    d = render(("report", scene), [("A", "1", "MET", "CA", "", 1.0, 20.0)])
+
+    (_expression, palette, *_rest), _kwargs = d.port.calls("spectrum")[0]
+    stops = palette.split("_")
+    assert len(stops) == 3, palette
+    defined = {a[0]: tuple(a[1]) for a, _ in d.port.calls("set_color")}
+    assert [defined[s] for s in stops] == list(BLUE_WHITE_RED), palette
+
+
+def test_generated_colour_names_carry_no_underscore():
+    """`spectrum` splits its palette on underscores, so a generated name with
+    one in it would be read as two colours that do not exist. This is the
+    constraint that makes the naming scheme what it is."""
+    from tests.conftest import render
+
+    field = ScalarField.per_atom([(("m", "0"), 1.0)])
+    scene = Scene([ColorByScalar(Sel.obj("obj"), field, (0.0, 1.0), palette=RED_YELLOW_GREEN)])
+    d = render(("report", scene), [("A", "1", "MET", "CA", "", 1.0, 20.0)])
+
+    generated = [a[0] for a, _ in d.port.calls("set_color")]
+    assert generated, "no colours were defined"
+    assert all("_" not in name for name in generated), generated
+
+
+def test_occupancy_ramp_runs_the_direction_its_report_claims():
+    """The report says "red (q=0) → white (q=0.5) → blue (q=1)". Reversing the
+    palette left every one of 546 tests passing while the prose described the
+    opposite of the picture — found by mutation, which is the only reason this
+    test exists.
+    """
+    report, scene = occupancy_view(make_atoms(ROWS), "obj")
+    (op,) = scene.of(ColorByScalar)
+
+    assert op.palette[0] == resolve_colour("red"), "low end is not red"
+    assert op.palette[-1] == resolve_colour("blue"), "high end is not blue"
+    # Both halves, so a reversal fails the first pair and a silent rewording
+    # of the legend fails the second.
+    assert "red (q=0)" in report
+    assert "blue (q=1)" in report
+
+
+def test_qscore_ramp_runs_the_direction_its_report_claims(tmp_path):
+    """Low Q is bad, so this ramp carries a judgement: red is unresolvable."""
+    from wiggles_em.qscore import qscore_view
+
+    path = tmp_path / "q.xml"
+    path.write_text(
+        '<?xml version="1.0"?><wwPDB-validation-information>'
+        '<ModelledSubgroup chain="A" resnum="1" said="A" Q_score="0.8"/>'
+        '<ModelledSubgroup chain="A" resnum="2" said="A" Q_score="0.4"/>'
+        "</wwPDB-validation-information>"
+    )
+    report, scene = qscore_view(make_atoms(ROWS), "obj", str(path))
+    (op,) = scene.of(ColorByScalar)
+
+    assert op.palette[0] == resolve_colour("red"), "Q=0 is not red"
+    assert op.palette[-1] == resolve_colour("green"), "Q=1 is not green"
+    assert "red (Q=0" in report
+    assert "green (Q=1)" in report
+
+
+def test_displacement_and_spread_ramp_low_to_high():
+    """Both quantities are magnitudes where more should read as hotter, so
+    blue is the low end. Reversed, a rigid core would read as the mobile part.
+    """
+    from wiggles_em.deformation import deformation_view
+    from wiggles_em.ensembles import ensemble_spread_view
+
+    start = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (3.0, 0.0, 0.0)]
+    end = [(0.5, 0.0, 0.0), (1.5, 0.0, 0.0), (2.5, 0.0, 0.0), (3.5, 0.0, 0.0)]
+
+    _r, deformation = deformation_view(
+        make_atoms(ROWS), start, end, "obj", 2, start_state=1, end_state=2
+    )
+    _r2, spread = ensemble_spread_view(make_atoms(ROWS), [start, end], "obj", superposed=True)
+
+    for scene in (deformation, spread):
+        (op,) = scene.of(ColorByScalar)
+        assert op.palette == BLUE_WHITE_RED
+        assert op.palette[0] == resolve_colour("blue")
+        assert op.palette[-1] == resolve_colour("red")
 
 
 def test_composition_refuses_a_palette_name_it_cannot_resolve():

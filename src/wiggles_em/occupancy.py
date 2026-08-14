@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from wiggles_em.atoms import Atom, altloc_groups, group_by_residue
 from wiggles_em.scene import (
+    RED_WHITE_BLUE,
     ColorByScalar,
     ColorFlat,
     Hide,
@@ -129,7 +130,7 @@ def occupancy_view(atoms: list[Atom], obj: str) -> tuple[str, Scene]:
     field = ScalarField.per_atom([(a.key, a.q) for a in atoms])
     scene = Scene(
         [
-            ColorByScalar(target, field, domain=(0.0, 1.0), palette="red_white_blue"),
+            ColorByScalar(target, field, domain=(0.0, 1.0), palette=RED_WHITE_BLUE),
             # Partial atoms shown as sticks so they read as "modelled alternative"
             # rather than as the single truth. Note this must NOT exclude protein:
             # side-chain alternates are the main thing this view exists to show.

@@ -380,7 +380,12 @@ class PymolBackend:
         self._stash(op.sel)
         call(self.port, "alter", sel, self._push(op.field))
         lo, hi = op.domain
-        call(self.port, "spectrum", "b", op.palette, sel, minimum=lo, maximum=hi)
+        # `spectrum` takes its ramp as colour *names* joined by underscores, so
+        # each stop is defined as a colour first. This is why `_colour_name`
+        # puts no underscore in what it generates: one would split the palette
+        # here and PyMOL would look up fragments of a hex string.
+        palette = "_".join(self._colour_name(stop) for stop in op.palette)
+        call(self.port, "spectrum", "b", palette, sel, minimum=lo, maximum=hi)
 
     def _sizebyscalar(self, op: SizeByScalar) -> None:
         sel = render_selection(op.sel)
@@ -394,11 +399,18 @@ class PymolBackend:
     # -- colour, visibility, labels ---------------------------------------
 
     def _colour_name(self, colour: Colour) -> str:
-        """A PyMOL colour name, defining one for an RGB triple if needed."""
+        """A PyMOL colour name, defining one for an RGB triple if needed.
+
+        **The generated name contains no underscore**, because ``spectrum``
+        splits its palette argument on underscores. A name like ``wgf_ff0000``
+        would be read there as the two colours ``wgf`` and ``ff0000``, neither
+        of which exists — so the ramp would be wrong or rejected depending on
+        what else happened to be defined.
+        """
         if isinstance(colour, str):
             return colour
         r, g, b = colour
-        name = f"wgf_{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+        name = f"wgf{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
         call(self.port, "set_color", name, [float(r), float(g), float(b)])
         return name
 

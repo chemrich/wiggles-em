@@ -39,6 +39,7 @@ not try to describe loading.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -288,6 +289,47 @@ def resolve_colour(colour: Colour) -> tuple[float, float, float]:
     )
 
 
+def ramp(spec: str | Iterable[Colour]) -> tuple[tuple[float, float, float], ...]:
+    """Colour stops for a scalar ramp, low value first.
+
+    Accepts PyMOL's underscore spelling — ``"blue_white_red"`` — because that
+    is how these ramps have always been written down here and it stays the
+    readable way to say one. It is resolved *at construction*, so what the
+    Scene carries is stops: a second viewer needs no palette vocabulary, only
+    the ability to interpolate between colours, and the **direction** becomes
+    a value a backend can inspect instead of a convention it has to know.
+
+    That direction is the whole point. ``red_white_blue`` and
+    ``blue_white_red`` differ only in order, a viewer with one fixed ramp can
+    honour exactly one of them, and drawing the other reverses the reading of
+    every number on screen while looking entirely normal.
+
+    Raises:
+        ValueError: fewer than two stops, or a name that is not resolvable.
+    """
+    parts: list[Colour] = list(spec.split("_")) if isinstance(spec, str) else list(spec)
+    if len(parts) < 2:
+        raise ValueError(
+            f"a ramp needs at least two stops to interpolate between; got "
+            f"{len(parts)} from {spec!r}"
+        )
+    return tuple(resolve_colour(part) for part in parts)
+
+
+#: Low value red, high value blue. Occupancy's default: q runs 0-1 and the
+#: legend states the direction, because red-means-more is the commoner reading
+#: and this is deliberately the other one.
+RED_WHITE_BLUE = ramp("red_white_blue")
+
+#: Low value blue, high value red — the everyday "more is hotter" ramp, used
+#: for displacement and spread.
+BLUE_WHITE_RED = ramp("blue_white_red")
+
+#: Low value red, high green. For scores where low is bad rather than merely
+#: small, so the ramp carries a judgement the other two do not.
+RED_YELLOW_GREEN = ramp("red_yellow_green")
+
+
 class Granularity(str, Enum):
     """What a scalar field's keys identify."""
 
@@ -435,12 +477,32 @@ class ColorByScalar(SceneOp):
     They differ in destructiveness, not mechanism, and that is a backend's
     business: PyMOL has one copy and must stash the originals, protean builds a
     display copy and re-sends it.
+
+    ``palette`` is colour **stops**, low value first, not a palette name.
+    PyMOL's ``spectrum`` takes ``"blue_white_red"``; naming that in a Scene
+    made the ramp a thing a second viewer had to already know, and one with a
+    single fixed ramp could not tell that ``red_white_blue`` asked for the
+    reverse of it. Stops make the direction inspectable. Build them with
+    :func:`ramp`, which still accepts the underscore spelling.
     """
 
     sel: Sel
     field: ScalarField
     domain: tuple[float, float]
-    palette: str = "red_white_blue"
+    palette: tuple[Colour, ...] = RED_WHITE_BLUE
+
+    def __post_init__(self) -> None:
+        if isinstance(self.palette, str):
+            raise ValueError(
+                f"palette is colour stops, not a palette name: got "
+                f"{self.palette!r}. Use ramp({self.palette!r}), which resolves "
+                f"the underscore spelling. Passing the string would iterate it "
+                f"character by character and resolve none of them."
+            )
+        if len(self.palette) < 2:
+            raise ValueError(
+                f"a ramp needs at least two stops to interpolate between; got {len(self.palette)}"
+            )
 
 
 @dataclass(frozen=True)
@@ -787,6 +849,9 @@ class Refused(Exception):
 
 
 __all__ = [
+    "BLUE_WHITE_RED",
+    "RED_WHITE_BLUE",
+    "RED_YELLOW_GREEN",
     "Arrow",
     "Arrows",
     "ColorByScalar",
@@ -813,5 +878,6 @@ __all__ = [
     "Show",
     "SizeByScalar",
     "Unit",
+    "ramp",
     "resolve_colour",
 ]

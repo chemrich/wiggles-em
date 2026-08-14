@@ -21,6 +21,7 @@ import random
 from wiggles_em.atoms import Atom
 from wiggles_em.port import PortError
 from wiggles_em.scene import (
+    BLUE_WHITE_RED,
     ColorByScalar,
     Legend,
     Morph,
@@ -292,7 +293,7 @@ def ensemble_spread_view(
     target = Sel.obj(obj)
     field = ScalarField.per_residue(list(residue_spread.items()))
     domain = (0.0, round(hi, 4))
-    ops: list[SceneOp] = [ColorByScalar(target, field, domain=domain, palette="blue_white_red")]
+    ops: list[SceneOp] = [ColorByScalar(target, field, domain=domain, palette=BLUE_WHITE_RED)]
     if as_putty:
         ops.append(SizeByScalar(target, field, domain=domain))
     ops.append(Legend(SPREAD_LEGEND))
