@@ -29,7 +29,7 @@ from wiggles_em.mapinfo import read_map_header
 from wiggles_em.maps import forget_map, load_map
 from wiggles_em.port import FakePort, PortError
 from wiggles_em.provenance import Provenance
-from wiggles_em.scene import ColorSurfaceByMap, Isosurface
+from wiggles_em.scene import ColorSurfaceByMap, Isosurface, resolve_colour
 
 #: A resolution field runs 2–6 Å. These are resolutions, not densities, which
 #: is the whole reason the conversion needs this map's own statistics.
@@ -182,7 +182,12 @@ def test_breakpoints_reach_pymol_in_the_resolution_maps_sigma(session):
     args, _ = d.port.calls("ramp_new")[0]
     assert args[1] == "locres"
     assert args[2] == pytest.approx([-2.0, -1.0, 0.0, 1.0, 2.0]), d.port.call_log
-    assert args[3] == list(DEFAULT_PALETTE)
+    # The scene carries RGB, so the backend defines a PyMOL colour per triple
+    # and ramps through those generated names. Map them back through set_color
+    # rather than reimplementing the naming here: the claim is about the
+    # *colours* the ramp uses, in order.
+    defined = {a[0]: tuple(a[1]) for a, _ in d.port.calls("set_color")}
+    assert [defined[n] for n in args[3]] == [resolve_colour(c) for c in DEFAULT_PALETTE]
 
 
 def test_both_units_appear_in_the_report(session):

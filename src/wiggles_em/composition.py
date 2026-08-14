@@ -38,6 +38,7 @@ from pathlib import Path
 from wiggles_em.port import PortError
 from wiggles_em.scene import (
     ColorFlat,
+    Colour,
     Label,
     Legend,
     Opacity,
@@ -45,6 +46,7 @@ from wiggles_em.scene import (
     SceneOp,
     Sel,
     Sense,
+    resolve_colour,
 )
 
 SENSE_2_LEGEND = (
@@ -135,7 +137,7 @@ def composition_view(
     *,
     transparency: bool = True,
     label: bool = True,
-    palette: tuple[str, str] = ("red", "skyblue"),
+    palette: tuple[Colour, Colour] = ("red", "skyblue"),
 ) -> tuple[str, Scene]:
     """Colour parts of ``obj`` by how often they are present across particles.
 
@@ -171,7 +173,10 @@ def composition_view(
 
     Raises:
         PortError: a selection matched nothing, so its colour never landed.
-        ValueError: the table is unparseable or holds a value outside [0, 1].
+        ValueError: the table is unparseable, holds a value outside [0, 1], or
+            names a palette colour :func:`~wiggles_em.scene.resolve_colour`
+            has no value for. That last case used to blend the *default*
+            palette instead and report success.
     """
     parsed = parse_composition_table(table)
 
@@ -212,23 +217,17 @@ def _slug(selection: str) -> str:
     return re.sub(r"\W+", "_", selection).strip("_").lower() or "sel"
 
 
-def _blend(rare: str, present: str, fraction: float) -> list[float]:
-    """Interpolate between two named colours. Named colours are resolved by
-    PyMOL, so this uses their standard RGB rather than asking — the palette is
-    a default, and a caller wanting exact control passes their own colours."""
-    known = {
-        "red": (1.0, 0.0, 0.0),
-        "skyblue": (0.34, 0.63, 0.83),
-        "blue": (0.0, 0.0, 1.0),
-        "white": (1.0, 1.0, 1.0),
-        "grey": (0.5, 0.5, 0.5),
-        "gray": (0.5, 0.5, 0.5),
-        "yellow": (1.0, 1.0, 0.0),
-        "orange": (1.0, 0.5, 0.0),
-        "green": (0.0, 1.0, 0.0),
-    }
-    a = known.get(rare, (1.0, 0.0, 0.0))
-    b = known.get(present, (0.34, 0.63, 0.83))
+def _blend(rare: Colour, present: Colour, fraction: float) -> list[float]:
+    """Interpolate between two colours, resolving any names to RGB first.
+
+    This used to carry its own name table and **fall back silently**: an
+    unrecognised name became red or skyblue, so ``palette=("purple", "teal")``
+    drew the default ramp and reported success — a wrong picture with a clean
+    return. :func:`~wiggles_em.scene.resolve_colour` raises instead, and is the
+    one table in the package rather than the second of three.
+    """
+    a = resolve_colour(rare)
+    b = resolve_colour(present)
     return [round(x + (y - x) * fraction, 4) for x, y in zip(a, b, strict=True)]
 
 

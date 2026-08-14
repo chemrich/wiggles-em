@@ -28,6 +28,7 @@ from pathlib import Path
 from wiggles_em.atoms import Atom, group_by_residue
 from wiggles_em.port import PortError
 from wiggles_em.scene import (
+    RED_YELLOW_GREEN,
     ColorByScalar,
     ColorFlat,
     Legend,
@@ -35,6 +36,7 @@ from wiggles_em.scene import (
     Scene,
     SceneOp,
     Sel,
+    resolve_colour,
 )
 
 # wwPDB has spelled this differently across releases; accept what we have seen
@@ -159,11 +161,11 @@ def qscore_view(
             # Fixed 0–1: Q-score is a similarity, not a relative quantity, so
             # autoscaling would make a uniformly poor map look well resolved.
             domain=(0.0, 1.0),
-            palette="red_yellow_green",
+            palette=RED_YELLOW_GREEN,
         )
     ]
     if missing:
-        ops.append(ColorFlat(target & Sel.residues(missing), NO_DATA_COLOUR))
+        ops.append(ColorFlat(target & Sel.residues(missing), resolve_colour(NO_DATA_COLOUR)))
     ops.append(Legend(QSCORE_LEGEND))
     scene = Scene(ops)
 

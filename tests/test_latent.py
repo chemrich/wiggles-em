@@ -240,8 +240,15 @@ def test_one_colour_for_every_frame(ensemble):
     port, name = ensemble()
     d = render(latent_traverse_view(name, color="yellow"), port=port)
 
+    # The view resolves "yellow" to RGB before it reaches the Scene, so PyMOL
+    # is asked to define a colour for that triple and then to use it. The claim
+    # is unchanged, and now pins the colour itself rather than a name PyMOL
+    # would have had to interpret.
+    defined = {tuple(args[1]) for args, _ in d.port.calls("set_color")}
+    assert defined == {(1.0, 1.0, 0.0)}, defined
+
     colours = {args[0] for args, _ in d.port.calls("color")}
-    assert colours == {"yellow"}
+    assert len(colours) == 1, f"one colour for every frame, got {colours}"
 
 
 def test_surface_names_can_be_overridden(ensemble):

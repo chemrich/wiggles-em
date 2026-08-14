@@ -26,6 +26,7 @@ from __future__ import annotations
 import pytest
 
 from tests.conftest import make_atoms, render
+from tests.test_colour_seam import assert_no_palette_names
 from tests.test_mapinfo import write_map
 from wiggles_em.composition import composition_view
 from wiggles_em.deformation import deformation_view
@@ -64,10 +65,17 @@ def _clean():
 
 
 def _assert_renders(result, *, port=None, normalised=None):
-    """A view returned a report and a Scene, and both backends took it."""
+    """A view returned a report and a Scene, and both backends took it.
+
+    The seam invariant rides this sweep deliberately: a hard-coded PyMOL colour
+    name is most likely to hide in a *default*, and this is the only file that
+    executes every view's defaults. A view added later is covered by adding it
+    here, which its author has to do anyway.
+    """
     report, scene = result
     assert isinstance(report, str) and report.strip(), "empty report"
     assert list(scene), "the view emitted no ops at all"
+    assert_no_palette_names(scene)
     render(result, ROWS, port=port, normalised=normalised)
     return report
 

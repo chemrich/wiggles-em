@@ -57,7 +57,17 @@ from wiggles_em.mapinfo import MapHeader
 from wiggles_em.maps import LoadedMap, loaded_map
 from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
-from wiggles_em.scene import ColorSurfaceByMap, Isosurface, Legend, Rep, Scene, Sel, Unit
+from wiggles_em.scene import (
+    ColorSurfaceByMap,
+    Colour,
+    Isosurface,
+    Legend,
+    Rep,
+    Scene,
+    Sel,
+    Unit,
+    resolve_colour,
+)
 
 #: Relative tolerance for calling two voxel spacings the same, for the same
 #: reason :data:`wiggles_em.mapinfo.ISOTROPY_RTOL` exists: EMD-30913 reports
@@ -216,7 +226,7 @@ def local_resolution_view(
     level: float | None = None,
     units: str = "sigma",
     breaks: list[float] | None = None,
-    palette: list[str] | tuple[str, ...] | None = None,
+    palette: list[Colour] | tuple[Colour, ...] | None = None,
     selection: str | None = None,
     carve: float = DEFAULT_CARVE,
     name: str | None = None,
@@ -237,7 +247,8 @@ def local_resolution_view(
             are always in Ångström.
         breaks: Ascending resolution breakpoints in Å. Defaults to the
             resolution map's own observed range.
-        palette: One colour per breakpoint. Defaults to
+        palette: One colour per breakpoint, each an RGB triple in 0–1 or a
+            name :func:`~wiggles_em.scene.resolve_colour` knows. Defaults to
             :data:`DEFAULT_PALETTE`, blue (best) through red (worst).
         selection: Restrict the surface to a carve around this selection.
         carve: Carve radius in Å. Ignored without ``selection``.
@@ -261,8 +272,9 @@ def local_resolution_view(
 
     Raises:
         PortError: either object was not loaded through ``load_map``.
-        ValueError: bad ``units``, bad breakpoints, or a palette that does not
-            match the breakpoints.
+        ValueError: bad ``units``, bad breakpoints, a palette that does not
+            match the breakpoints, or a palette colour that is neither RGB nor
+            a name :func:`~wiggles_em.scene.resolve_colour` knows.
     """
     if units not in ("sigma", "absolute"):
         raise ValueError(f"units must be 'sigma' or 'absolute', got {units!r}")
@@ -320,7 +332,7 @@ def local_resolution_view(
             ]
         ), Scene()
 
-    colours = list(palette) if palette is not None else list(DEFAULT_PALETTE)
+    colours: list[Colour] = list(palette) if palette is not None else list(DEFAULT_PALETTE)
     if len(colours) != len(points):
         raise ValueError(
             f"{len(points)} breakpoints but {len(colours)} colours — ramp_new pairs "
@@ -518,7 +530,12 @@ def local_resolution_view(
                 carve_around=Sel.raw(selection) if selection else None,
                 carve_radius=carve if selection else None,
             ),
-            ColorSurfaceByMap(surface, res_obj, tuple(points), tuple(colours)),
+            ColorSurfaceByMap(
+                surface,
+                res_obj,
+                tuple(points),
+                tuple(resolve_colour(c) for c in colours),
+            ),
             Legend(LOCAL_RESOLUTION_LEGEND),
         ]
     )
@@ -572,15 +589,28 @@ def _voxel_text(header: MapHeader) -> str:
     return f"voxel {'/'.join(parts)} Å"
 
 
+def _colour_label(colour: Colour) -> str:
+    """How a ramp colour reads in the report.
+
+    A name stays a name — the reader asked for ``blue`` and wants to see it —
+    and a triple becomes hex rather than a bare tuple, because the report is
+    prose and ``(0.0, 0.0, 1.0)`` in the middle of a table is not.
+    """
+    if isinstance(colour, str):
+        return colour
+    r, g, b = (int(component * 255) for component in colour)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _ramp_table(
     points: list[float],
     sigmas: list[float],
-    colours: list[str],
+    colours: list[Colour],
     normalised: bool | None,
 ) -> str:
     """Every breakpoint in both units, plus what the colours mean."""
     rows = [
-        f"    {p:>6.2f} Å   ->  {s:>8.3g}   {c}"
+        f"    {p:>6.2f} Å   ->  {s:>8.3g}   {_colour_label(c)}"
         for p, s, c in zip(points, sigmas, colours, strict=True)
     ]
     unit_header = "as sent" if normalised is False else "sigma"

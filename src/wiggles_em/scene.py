@@ -39,6 +39,7 @@ not try to describe loading.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -204,7 +205,147 @@ class Sense(str, Enum):
 
 
 Colour = str | tuple[float, float, float]
-"""A named colour, or RGB in 0–1. Backends that need a name define one."""
+"""A named colour, or RGB in 0–1. Backends that need a name define one.
+
+**A name is an argument, not a scene value.** Every name below is one of
+*PyMOL's*, so a Scene carrying one can only be honoured by a second viewer that
+reimplements PyMOL's table — which is a viewer-neutral value naming a viewer.
+Views therefore call :func:`resolve_colour` on whatever a caller passed and put
+RGB in the Scene. Callers keep naming colours, because a view's signature is
+not the seam; the Scene is.
+"""
+
+
+#: PyMOL's RGB for the names this package uses or accepts. **Verified against
+#: a real PyMOL 3.1 via ``cmd.get_color_tuple``**, which is the only way this
+#: table is worth anything — see ``test_the_palette_matches_pymols_own``.
+#:
+#: It was first assembled from the two copies that already existed —
+#: ``composition._blend``'s table and protean's
+#: ``backends/molstar.py::_COLOUR_NAMES`` — and **both were wrong** about
+#: ``skyblue`` (0.34, 0.63, 0.83 against PyMOL's 0.2, 0.5, 0.8) and
+#: ``lightblue``. They agreed with each other, which read as corroboration and
+#: was not: one was copied from the other, so the two carried one error twice.
+#: Agreement between transcriptions says nothing. Ask the source.
+#:
+#: Deliberately not exhaustive. A name whose value this package cannot state
+#: confidently is refused rather than approximated, because a wrong RGB draws a
+#: plausible picture and reports success. Callers wanting anything else pass an
+#: RGB triple, which needs no table at all.
+_PALETTE: dict[str, tuple[float, float, float]] = {
+    # Unambiguous in any viewer.
+    "red": (1.0, 0.0, 0.0),
+    "green": (0.0, 1.0, 0.0),
+    "blue": (0.0, 0.0, 1.0),
+    "yellow": (1.0, 1.0, 0.0),
+    "cyan": (0.0, 1.0, 1.0),
+    "magenta": (1.0, 0.0, 1.0),
+    "orange": (1.0, 0.5, 0.0),
+    "white": (1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0),
+    # PyMOL's pastels, used for altloc groups and defaults.
+    "skyblue": (0.2, 0.5, 0.8),
+    "salmon": (1.0, 0.6, 0.6),
+    "palegreen": (0.65, 0.9, 0.65),
+    "wheat": (0.99, 0.82, 0.65),
+    "lightpink": (1.0, 0.75, 0.87),
+    "paleyellow": (1.0, 1.0, 0.5),
+    "lightblue": (0.75, 0.75, 1.0),
+    "lightorange": (1.0, 0.8, 0.5),
+}
+
+#: ``grey``/``gray`` with no suffix. The suffixed family is computed — see
+#: :func:`resolve_colour`.
+_GREY = (0.5, 0.5, 0.5)
+
+
+def resolve_colour(colour: Colour) -> tuple[float, float, float]:
+    """RGB in 0–1 for ``colour``, which may already be RGB.
+
+    Raises:
+        ValueError: for a name with no recorded value. **Refusing beats
+            guessing**: an approximated colour renders a plausible picture and
+            returns cleanly, which is the failure mode that costs most here.
+            The message names the escape hatch, since a caller who wants a
+            colour this package does not know can always pass its RGB.
+    """
+    if not isinstance(colour, str):
+        r, g, b = (float(c) for c in colour)
+        # 0-255 is the other common spelling, and PyMOL's `set_color` accepts
+        # both — so a wrong-scale triple renders correctly in the one backend
+        # that is tested here and is broken everywhere else, which is the
+        # failure this module exists to prevent. Refuse it at the gate.
+        if not all(0.0 <= c <= 1.0 for c in (r, g, b)):
+            raise ValueError(
+                f"RGB components are 0-1 here, and {colour!r} is outside that. "
+                f"If these are 0-255 values, divide by 255."
+            )
+        return (r, g, b)
+
+    name = colour.strip().lower()
+    if name in _PALETTE:
+        return _PALETTE[name]
+    if name in ("grey", "gray"):
+        return _GREY
+    # PyMOL defines grey00-grey99 (and the `gray` spelling) as a uniform ramp,
+    # which is why `grey50` and `grey70` are not table entries: the rule is
+    # exact, so computing it cannot drift the way a transcribed value can.
+    #
+    # The divisor is **99, not 100** — the ramp runs inclusive, so `grey99` is
+    # white and `grey70` is 0.70707, not 0.7. Verified against PyMOL 3.1;
+    # `/100` was wrong here and its test asserted the wrong value back.
+    if name[:4] in ("grey", "gray") and name[4:].isdigit() and len(name[4:]) == 2:
+        level = int(name[4:]) / 99.0
+        return (level, level, level)
+
+    raise ValueError(
+        f"{colour!r} is not a colour this package has a value for. Known names: "
+        f"{', '.join(sorted(_PALETTE))}, and grey00-grey99. Pass an RGB triple "
+        f"in 0-1 for anything else — a Scene carries RGB, so a triple needs no "
+        f"table and works in every viewer. Guessing at the name was rejected "
+        f"deliberately: a wrong colour draws a picture that looks fine."
+    )
+
+
+def ramp(spec: str | Iterable[Colour]) -> tuple[tuple[float, float, float], ...]:
+    """Colour stops for a scalar ramp, low value first.
+
+    Accepts PyMOL's underscore spelling — ``"blue_white_red"`` — because that
+    is how these ramps have always been written down here and it stays the
+    readable way to say one. It is resolved *at construction*, so what the
+    Scene carries is stops: a second viewer needs no palette vocabulary, only
+    the ability to interpolate between colours, and the **direction** becomes
+    a value a backend can inspect instead of a convention it has to know.
+
+    That direction is the whole point. ``red_white_blue`` and
+    ``blue_white_red`` differ only in order, a viewer with one fixed ramp can
+    honour exactly one of them, and drawing the other reverses the reading of
+    every number on screen while looking entirely normal.
+
+    Raises:
+        ValueError: fewer than two stops, or a name that is not resolvable.
+    """
+    parts: list[Colour] = list(spec.split("_")) if isinstance(spec, str) else list(spec)
+    if len(parts) < 2:
+        raise ValueError(
+            f"a ramp needs at least two stops to interpolate between; got "
+            f"{len(parts)} from {spec!r}"
+        )
+    return tuple(resolve_colour(part) for part in parts)
+
+
+#: Low value red, high value blue. Occupancy's default: q runs 0-1 and the
+#: legend states the direction, because red-means-more is the commoner reading
+#: and this is deliberately the other one.
+RED_WHITE_BLUE = ramp("red_white_blue")
+
+#: Low value blue, high value red — the everyday "more is hotter" ramp, used
+#: for displacement and spread.
+BLUE_WHITE_RED = ramp("blue_white_red")
+
+#: Low value red, high green. For scores where low is bad rather than merely
+#: small, so the ramp carries a judgement the other two do not.
+RED_YELLOW_GREEN = ramp("red_yellow_green")
 
 
 class Granularity(str, Enum):
@@ -354,12 +495,32 @@ class ColorByScalar(SceneOp):
     They differ in destructiveness, not mechanism, and that is a backend's
     business: PyMOL has one copy and must stash the originals, protean builds a
     display copy and re-sends it.
+
+    ``palette`` is colour **stops**, low value first, not a palette name.
+    PyMOL's ``spectrum`` takes ``"blue_white_red"``; naming that in a Scene
+    made the ramp a thing a second viewer had to already know, and one with a
+    single fixed ramp could not tell that ``red_white_blue`` asked for the
+    reverse of it. Stops make the direction inspectable. Build them with
+    :func:`ramp`, which still accepts the underscore spelling.
     """
 
     sel: Sel
     field: ScalarField
     domain: tuple[float, float]
-    palette: str = "red_white_blue"
+    palette: tuple[Colour, ...] = RED_WHITE_BLUE
+
+    def __post_init__(self) -> None:
+        if isinstance(self.palette, str):
+            raise ValueError(
+                f"palette is colour stops, not a palette name: got "
+                f"{self.palette!r}. Use ramp({self.palette!r}), which resolves "
+                f"the underscore spelling. Passing the string would iterate it "
+                f"character by character and resolve none of them."
+            )
+        if len(self.palette) < 2:
+            raise ValueError(
+                f"a ramp needs at least two stops to interpolate between; got {len(self.palette)}"
+            )
 
 
 @dataclass(frozen=True)
@@ -497,6 +658,14 @@ class Arrow:
     end: tuple[float, float, float]
     colour: Colour
     radius: float = 0.15
+
+    def __post_init__(self) -> None:
+        # Checked here rather than in the backend. CGO carries RGB inline, so
+        # the backend resolves this *while rendering* — after earlier ops have
+        # already reached the session — and an unresolvable name would surface
+        # as a bare ValueError over a half-drawn scene. A value that cannot be
+        # drawn should not be constructible.
+        resolve_colour(self.colour)
 
 
 @dataclass(frozen=True)
@@ -706,6 +875,9 @@ class Refused(Exception):
 
 
 __all__ = [
+    "BLUE_WHITE_RED",
+    "RED_WHITE_BLUE",
+    "RED_YELLOW_GREEN",
     "Arrow",
     "Arrows",
     "ColorByScalar",
@@ -732,4 +904,6 @@ __all__ = [
     "Show",
     "SizeByScalar",
     "Unit",
+    "ramp",
+    "resolve_colour",
 ]
