@@ -216,11 +216,17 @@ not the seam; the Scene is.
 """
 
 
-#: PyMOL's RGB for the names this package uses or accepts. Assembled from the
-#: two copies that already existed — ``composition._blend``'s table and
-#: protean's ``backends/molstar.py::_COLOUR_NAMES`` — which had **disjoint**
-#: name sets and agreed on the one name they shared (``skyblue``). That
-#: divergence is why this lives in one place now.
+#: PyMOL's RGB for the names this package uses or accepts. **Verified against
+#: a real PyMOL 3.1 via ``cmd.get_color_tuple``**, which is the only way this
+#: table is worth anything — see ``test_the_palette_matches_pymols_own``.
+#:
+#: It was first assembled from the two copies that already existed —
+#: ``composition._blend``'s table and protean's
+#: ``backends/molstar.py::_COLOUR_NAMES`` — and **both were wrong** about
+#: ``skyblue`` (0.34, 0.63, 0.83 against PyMOL's 0.2, 0.5, 0.8) and
+#: ``lightblue``. They agreed with each other, which read as corroboration and
+#: was not: one was copied from the other, so the two carried one error twice.
+#: Agreement between transcriptions says nothing. Ask the source.
 #:
 #: Deliberately not exhaustive. A name whose value this package cannot state
 #: confidently is refused rather than approximated, because a wrong RGB draws a
@@ -238,13 +244,13 @@ _PALETTE: dict[str, tuple[float, float, float]] = {
     "white": (1.0, 1.0, 1.0),
     "black": (0.0, 0.0, 0.0),
     # PyMOL's pastels, used for altloc groups and defaults.
-    "skyblue": (0.34, 0.63, 0.83),
+    "skyblue": (0.2, 0.5, 0.8),
     "salmon": (1.0, 0.6, 0.6),
     "palegreen": (0.65, 0.9, 0.65),
     "wheat": (0.99, 0.82, 0.65),
     "lightpink": (1.0, 0.75, 0.87),
     "paleyellow": (1.0, 1.0, 0.5),
-    "lightblue": (0.75, 1.0, 1.0),
+    "lightblue": (0.75, 0.75, 1.0),
     "lightorange": (1.0, 0.8, 0.5),
 }
 
@@ -264,20 +270,32 @@ def resolve_colour(colour: Colour) -> tuple[float, float, float]:
             colour this package does not know can always pass its RGB.
     """
     if not isinstance(colour, str):
-        r, g, b = colour
-        return (float(r), float(g), float(b))
+        r, g, b = (float(c) for c in colour)
+        # 0-255 is the other common spelling, and PyMOL's `set_color` accepts
+        # both — so a wrong-scale triple renders correctly in the one backend
+        # that is tested here and is broken everywhere else, which is the
+        # failure this module exists to prevent. Refuse it at the gate.
+        if not all(0.0 <= c <= 1.0 for c in (r, g, b)):
+            raise ValueError(
+                f"RGB components are 0-1 here, and {colour!r} is outside that. "
+                f"If these are 0-255 values, divide by 255."
+            )
+        return (r, g, b)
 
     name = colour.strip().lower()
     if name in _PALETTE:
         return _PALETTE[name]
     if name in ("grey", "gray"):
         return _GREY
-    # PyMOL defines grey00-grey99 (and the `gray` spelling) as a uniform ramp
-    # at NN/100, which is why `grey50` and `grey70` are not table entries: the
-    # rule is exact, so computing it cannot drift from PyMOL the way a
-    # transcribed value can.
+    # PyMOL defines grey00-grey99 (and the `gray` spelling) as a uniform ramp,
+    # which is why `grey50` and `grey70` are not table entries: the rule is
+    # exact, so computing it cannot drift the way a transcribed value can.
+    #
+    # The divisor is **99, not 100** — the ramp runs inclusive, so `grey99` is
+    # white and `grey70` is 0.70707, not 0.7. Verified against PyMOL 3.1;
+    # `/100` was wrong here and its test asserted the wrong value back.
     if name[:4] in ("grey", "gray") and name[4:].isdigit() and len(name[4:]) == 2:
-        level = int(name[4:]) / 100.0
+        level = int(name[4:]) / 99.0
         return (level, level, level)
 
     raise ValueError(
@@ -640,6 +658,14 @@ class Arrow:
     end: tuple[float, float, float]
     colour: Colour
     radius: float = 0.15
+
+    def __post_init__(self) -> None:
+        # Checked here rather than in the backend. CGO carries RGB inline, so
+        # the backend resolves this *while rendering* — after earlier ops have
+        # already reached the session — and an unresolvable name would surface
+        # as a bare ValueError over a half-drawn scene. A value that cannot be
+        # drawn should not be constructible.
+        resolve_colour(self.colour)
 
 
 @dataclass(frozen=True)

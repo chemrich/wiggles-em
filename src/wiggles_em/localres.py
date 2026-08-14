@@ -59,6 +59,7 @@ from wiggles_em.port import PortError
 from wiggles_em.provenance import provenance_banner
 from wiggles_em.scene import (
     ColorSurfaceByMap,
+    Colour,
     Isosurface,
     Legend,
     Rep,
@@ -225,7 +226,7 @@ def local_resolution_view(
     level: float | None = None,
     units: str = "sigma",
     breaks: list[float] | None = None,
-    palette: list[str] | tuple[str, ...] | None = None,
+    palette: list[Colour] | tuple[Colour, ...] | None = None,
     selection: str | None = None,
     carve: float = DEFAULT_CARVE,
     name: str | None = None,
@@ -331,7 +332,7 @@ def local_resolution_view(
             ]
         ), Scene()
 
-    colours = list(palette) if palette is not None else list(DEFAULT_PALETTE)
+    colours: list[Colour] = list(palette) if palette is not None else list(DEFAULT_PALETTE)
     if len(colours) != len(points):
         raise ValueError(
             f"{len(points)} breakpoints but {len(colours)} colours — ramp_new pairs "
@@ -588,15 +589,28 @@ def _voxel_text(header: MapHeader) -> str:
     return f"voxel {'/'.join(parts)} Å"
 
 
+def _colour_label(colour: Colour) -> str:
+    """How a ramp colour reads in the report.
+
+    A name stays a name — the reader asked for ``blue`` and wants to see it —
+    and a triple becomes hex rather than a bare tuple, because the report is
+    prose and ``(0.0, 0.0, 1.0)`` in the middle of a table is not.
+    """
+    if isinstance(colour, str):
+        return colour
+    r, g, b = (int(component * 255) for component in colour)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def _ramp_table(
     points: list[float],
     sigmas: list[float],
-    colours: list[str],
+    colours: list[Colour],
     normalised: bool | None,
 ) -> str:
     """Every breakpoint in both units, plus what the colours mean."""
     rows = [
-        f"    {p:>6.2f} Å   ->  {s:>8.3g}   {c}"
+        f"    {p:>6.2f} Å   ->  {s:>8.3g}   {_colour_label(c)}"
         for p, s, c in zip(points, sigmas, colours, strict=True)
     ]
     unit_header = "as sent" if normalised is False else "sigma"

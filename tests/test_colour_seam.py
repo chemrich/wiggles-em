@@ -22,6 +22,10 @@ own defaults** — the path where a hard-coded name is most likely to hide.
 from __future__ import annotations
 
 import dataclasses
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -154,18 +158,67 @@ def test_occupancy_view_emits_no_palette_names():
 @pytest.mark.parametrize(
     ("name", "rgb"),
     [
-        ("grey70", (0.7, 0.7, 0.7)),
-        ("grey50", (0.5, 0.5, 0.5)),
-        ("skyblue", (0.34, 0.63, 0.83)),
+        ("grey70", (70 / 99, 70 / 99, 70 / 99)),
+        ("grey50", (50 / 99, 50 / 99, 50 / 99)),
+        ("skyblue", (0.2, 0.5, 0.8)),
         ("salmon", (1.0, 0.6, 0.6)),
         ("red", (1.0, 0.0, 0.0)),
     ],
 )
-def test_names_resolve_to_the_value_they_always_had(name, rgb):
+def test_names_resolve_to_pymols_value(name, rgb):
     """Pinned, not merely "is a triple". The conversion is only safe if the
     colour drawn is unchanged, and PyMOL renders the RGB now rather than
-    looking the name up itself."""
-    assert resolve_colour(name) == rgb
+    looking the name up itself.
+
+    These were wrong once. ``skyblue`` was ``(0.34, 0.63, 0.83)`` here, taken
+    from two existing tables that agreed with each other and not with PyMOL.
+    Agreement between transcriptions is not evidence — see
+    :func:`test_the_palette_matches_pymols_own`, which asks the source.
+    """
+    assert resolve_colour(name) == pytest.approx(rgb)
+
+
+def test_the_palette_matches_pymols_own():
+    """Check every entry against a real PyMOL, when one is installed.
+
+    The package must import without PyMOL, so this shells out to the binary
+    and skips when it is absent — it will skip in CI and run on a workstation.
+    That is worth having anyway: a transcribed table is exactly the artefact
+    that drifts silently, and the two it replaced were both wrong.
+
+    ``-k`` skips the user's pymolrc, so this loads no plugins and cannot touch
+    a session they have open.
+    """
+    pymol = shutil.which("pymol")
+    if pymol is None:
+        pytest.skip("no pymol on PATH; the table cannot be checked against it")
+
+    from wiggles_em.scene import _PALETTE
+
+    names = [*_PALETTE, "grey00", "grey07", "gray25", "grey50", "grey70", "grey99"]
+    script = Path(tempfile.mkdtemp()) / "dump.py"
+    script.write_text(
+        "from pymol import cmd\n"
+        f"for n in {names!r}:\n"
+        '    print("VAL", n, *cmd.get_color_tuple(n))\n'
+    )
+    out = subprocess.run([pymol, "-ckq", str(script)], capture_output=True, text=True, timeout=120)
+    theirs = {
+        parts[1]: tuple(float(c) for c in parts[2:5])
+        for line in out.stdout.splitlines()
+        if (parts := line.split()) and parts[0] == "VAL"
+    }
+    assert theirs, f"pymol produced no colours: {out.stdout[-400:]} {out.stderr[-400:]}"
+
+    wrong = {
+        name: (resolve_colour(name), theirs[name])
+        for name in names
+        if name in theirs and resolve_colour(name) != pytest.approx(theirs[name], abs=1e-6)
+    }
+    assert not wrong, "\n".join(
+        f"  {name}: this package says {ours}, PyMOL says {pymols}"
+        for name, (ours, pymols) in sorted(wrong.items())
+    )
 
 
 def test_rgb_passes_through_unchanged():
@@ -173,11 +226,17 @@ def test_rgb_passes_through_unchanged():
 
 
 def test_the_grey_ramp_is_computed_not_transcribed():
-    """PyMOL's greyNN is a uniform NN/100 ramp, so computing it cannot drift
-    from PyMOL the way a transcribed table entry can."""
+    """PyMOL's greyNN is a uniform ramp, so computing it cannot drift the way a
+    transcribed entry can — but only if the divisor is right.
+
+    It is **99, not 100**: the ramp is inclusive, so ``grey99`` is white. This
+    test asserted 0.99 and passed, which is what a test written from the same
+    wrong assumption as the code always does.
+    """
     assert resolve_colour("grey00") == (0.0, 0.0, 0.0)
-    assert resolve_colour("gray25") == (0.25, 0.25, 0.25)
-    assert resolve_colour("grey99") == (0.99, 0.99, 0.99)
+    assert resolve_colour("grey99") == (1.0, 1.0, 1.0)
+    assert resolve_colour("gray25") == pytest.approx((25 / 99, 25 / 99, 25 / 99))
+    assert resolve_colour("grey70") == pytest.approx((0.70707, 0.70707, 0.70707), abs=1e-5)
 
 
 def test_an_unknown_name_is_refused_not_approximated():
@@ -190,6 +249,23 @@ def test_an_unknown_name_is_refused_not_approximated():
     assert "chartreuse" in message
     # The remedy has to be followable, or the refusal just blocks the caller.
     assert "RGB triple" in message
+
+
+def test_an_rgb_triple_on_the_wrong_scale_is_refused():
+    """0-255 is the other common spelling and PyMOL's `set_color` accepts both,
+    so a wrong-scale triple renders correctly in the one backend tested here
+    and is broken in every other viewer."""
+    with pytest.raises(ValueError, match="255"):
+        resolve_colour((255, 0, 0))
+
+
+def test_an_unresolvable_arrow_colour_fails_at_construction():
+    """Not mid-render. CGO resolves inline while drawing, so a bad name would
+    otherwise surface as a bare ValueError over a half-applied scene."""
+    from wiggles_em.scene import Arrow as _Arrow
+
+    with pytest.raises(ValueError, match="chartreuse"):
+        _Arrow((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), "chartreuse")
 
 
 def test_a_named_arrow_colour_reaches_pymol_as_that_colour():
