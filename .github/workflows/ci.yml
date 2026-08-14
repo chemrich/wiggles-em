@@ -7,7 +7,19 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs, but never a run on `main`. Two repos depend on
+  # this package, so "the checks that vouch for this commit were cancelled" is
+  # not an acceptable state for the branch they install from.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+defaults:
+  run:
+    # GitHub's default step shell is `bash -e {0}` — no `pipefail`. That means
+    # in `a=$(cmd | grep -c x)` the pipeline reports *grep's* status, so a
+    # failing `cmd` passes silently. `shell: bash` is `bash --noprofile --norc
+    # -eo pipefail {0}`. The guards below do not rely on this alone, but any
+    # step added later would inherit the trap otherwise.
+    shell: bash
 
 jobs:
   lint:
@@ -22,6 +34,11 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          # Pinned so this job does not silently change interpreter when GitHub
+          # bumps `ubuntu-latest`. 3.10 because that is the version both tools
+          # are configured to *analyse* for; running and analysing on the same
+          # version keeps the job's behaviour explainable.
+          python-version: "3.10"
       - name: uv sync
         # --locked fails if uv.lock has drifted from pyproject.toml, rather
         # than silently resolving something else and testing that instead.
@@ -59,40 +76,64 @@ jobs:
           echo "matrix asked for ${{ matrix.python-version }}; uv run gives ${actual}"
           test "${actual}" = "${{ matrix.python-version }}"
 
-      - name: floor the collected test count
+      - name: the collected test count is exactly what it should be
         # pyproject sets `addopts = "-m 'not network and not live'"`, so a file
-        # that accidentally gains a marker vanishes from the run and CI still
-        # goes green. That is the same shape as the bug where protean's browser
-        # job passed with twenty new tests unexecuted, and it is invisible in a
-        # "N passed" line because N just gets smaller.
+        # that accidentally gains a marker leaves the run and CI still goes
+        # green — "N passed" simply gets smaller. Same shape as the bug where
+        # protean's browser job passed with twenty new tests unexecuted.
         #
-        # 543 selected of 554 collected, measured 2026-08-14 on 3.10 through
-        # 3.13 (the 11 deselected are test_selection_live.py, which needs a
-        # running PyMOL). Counting `::` nodeids rather than parsing pytest's
-        # summary, because that summary changes wording once nothing is
-        # deselected. Raise the floor when tests are added.
+        # 543 selected of 554, measured 2026-08-14 on 3.10 through 3.13; the 11
+        # deselected are test_selection_live.py, which needs a running PyMOL.
+        #
+        # `-ne`, not `-lt`. A floor stops guarding the moment the suite outgrows
+        # it: at 640 tests a whole file could vanish and still clear a floor of
+        # 543. An exact count means adding tests *requires* editing this number,
+        # which is the point — the number is then something a human agreed to.
+        #
+        # The two-step form matters. `n=$(pytest ... | grep -c '::')` reports
+        # grep's status, so a collection error scrolls past while the count
+        # still looks plausible; and `grep -c` exits 1 on zero matches, which
+        # under `-e` kills the step before it can print why. Check pytest's own
+        # status first, then count, tolerating grep's empty-match exit.
         run: |
-          floor=543
-          collected=$(uv run pytest --collect-only -q | grep -c '::')
-          echo "collected ${collected} tests, floor is ${floor}"
-          if [ "${collected}" -lt "${floor}" ]; then
-            echo "::error::Collection dropped to ${collected}, below the floor of ${floor}."
-            echo "::error::A test file probably gained a 'network' or 'live' marker, or failed to import."
+          expected=543
+          if ! out=$(uv run pytest --collect-only -q 2>&1); then
+            echo "::error::pytest could not collect the suite at all — see below."
+            printf '%s\n' "${out}" | tail -25
+            exit 1
+          fi
+          collected=$(printf '%s\n' "${out}" | grep -cE '^[^ ]+::' || true)
+          echo "collected ${collected} tests, expected ${expected}"
+          if [ "${collected}" -ne "${expected}" ]; then
+            echo "::error::Collection is ${collected}, expected ${expected}."
+            echo "::error::If tests were added or removed on purpose, update 'expected' in ci.yml."
+            echo "::error::Otherwise a file gained a 'network' or 'live' marker, or failed to import."
             exit 1
           fi
 
       - name: collection agrees both ways
         # This repo has already shipped a commit (G9) where `uv run pytest` and
-        # `uv run python -m pytest` collected different numbers of tests,
-        # because the latter puts the cwd on sys.path and the former does not,
-        # and three test modules import helpers as `tests.conftest`. The
-        # `pythonpath = ["src", "."]` setting in pyproject is the fix; this is
-        # the guard that it stays fixed. Someone will run this suite the way
-        # the README does not happen to say.
+        # `uv run python -m pytest` disagreed, because the latter puts the cwd
+        # on sys.path and the former does not, and three test modules import
+        # helpers as `tests.conftest`. `pythonpath = ["src", "."]` is the fix;
+        # this is the guard that it stays fixed, for whoever runs the suite the
+        # way the README does not happen to say.
         run: |
-          a=$(uv run pytest --collect-only -q | grep -c '::')
-          b=$(uv run python -m pytest --collect-only -q | grep -c '::')
+          if ! a_out=$(uv run pytest --collect-only -q 2>&1); then
+            echo "::error::'uv run pytest' could not collect."
+            printf '%s\n' "${a_out}" | tail -25
+            exit 1
+          fi
+          if ! b_out=$(uv run python -m pytest --collect-only -q 2>&1); then
+            echo "::error::'uv run python -m pytest' could not collect, though 'uv run pytest' could."
+            printf '%s\n' "${b_out}" | tail -25
+            exit 1
+          fi
+          a=$(printf '%s\n' "${a_out}" | grep -cE '^[^ ]+::' || true)
+          b=$(printf '%s\n' "${b_out}" | grep -cE '^[^ ]+::' || true)
           echo "uv run pytest: ${a}; uv run python -m pytest: ${b}"
+          # Both being zero would satisfy equality while proving nothing.
+          test "${a}" -gt 0
           test "${a}" = "${b}"
 
       - name: pytest

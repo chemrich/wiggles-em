@@ -91,8 +91,11 @@ uv run ruff check
 uv run mypy
 ```
 
-CI runs exactly those, on Python 3.10 through 3.13. Two suites stay out of it
-and have to be run by hand:
+CI runs all three: `pytest` on Python 3.10, 3.11, 3.12 and 3.13, and `ruff` and
+`mypy` once each — both are configured to target 3.10 regardless of the
+interpreter they run on, so a matrix would repeat one answer four times.
+
+Two suites stay out of CI and have to be run by hand:
 
 ```bash
 uv run pytest -m live           # drives a running PyMOL; CLEARS ITS SESSION
