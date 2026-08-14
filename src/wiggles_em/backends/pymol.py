@@ -265,10 +265,19 @@ class PymolBackend:
         #: yet**, so the contract is stated here rather than demonstrated by a
         #: caller — which is why it drifted from the code once already.
         self.converted: dict[str, tuple[float, float]] = {}
-        #: Objects this render has already spoken about, so a view emitting
-        #: two scalar ops against one object (ColorByScalar + SizeByScalar,
-        #: which is every putty view) says it once rather than twice.
-        self._noted: set[str] = set()
+        #: B-factor notes already emitted, as ``(object, text)``, so a view
+        #: emitting two scalar ops against one object (ColorByScalar +
+        #: SizeByScalar, which is every putty view) says it once rather than
+        #: twice. Cleared at the start of every :meth:`render`.
+        #:
+        #: Keyed on the text as well as the object, not the object alone. The
+        #: note for an object *changes* when its state does — "the originals are
+        #: gone" becomes "the originals are held" once the user follows the
+        #: recovery advice — and suppressing by object swallowed the corrected
+        #: note while leaving the stale one standing. That is the false claim
+        #: these notes exist to prevent, produced by the mechanism meant to tidy
+        #: them.
+        self._noted: set[tuple[str, str]] = set()
         #: Caveats that are true of PyMOL and of no other viewer. The host
         #: appends these to the view's report.
         #:
@@ -283,6 +292,11 @@ class PymolBackend:
 
     def render(self, scene: Scene) -> None:
         """Draw every op, in order. Raises on the first one it cannot honour."""
+        # Per render, not per backend. `draw()` builds a fresh backend each
+        # call so nothing in this package noticed, but PymolBackend is public
+        # and `draw` returns it "for its record" — a host reusing one across two
+        # views lost every note for an object it had already spoken about.
+        self._noted.clear()
         for op in scene:
             self.render_op(op)
 
@@ -314,10 +328,10 @@ class PymolBackend:
         return f"b={_STORED}.get({key_expr}, b)"
 
     def _note_once(self, obj: str, note: str) -> None:
-        """Append a B-factor note for ``obj``, at most once per render."""
-        if obj in self._noted:
+        """Append a B-factor note, at most once per object per render."""
+        if (obj, note) in self._noted:
             return
-        self._noted.add(obj)
+        self._noted.add((obj, note))
         self.notes.append(note)
 
     def _stash(self, sel: Sel) -> None:

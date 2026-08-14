@@ -461,9 +461,8 @@ def local_resolution_view(
         else:
             remedies += [
                 f"  Reloading with normalisation on would not help: {res_obj}'s header",
-                f"  reports rms={res.header.rms:g} too, so the ramp breakpoints could not",
-                "  be converted either. Repair the statistics on both maps, or work in",
-                "  absolute values throughout.",
+                f"  reports rms={res.header.rms:g} too, so the ramp breakpoints could not be",
+                "  converted either.",
             ]
         remedies += [
             f"  Or choose {article} {needed_unit.value} level of your own and pass it",
@@ -483,7 +482,8 @@ def local_resolution_view(
                 "",
                 setting,
                 *remedies,
-                "  Or repair the header statistics, which makes both units available.",
+                "  Or repair the header statistics, which makes both units available"
+                + (" on both maps." if not reload_works else "."),
             ]
         ), Scene()
 

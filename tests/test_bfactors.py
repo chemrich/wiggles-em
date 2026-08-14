@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from conftest import make_atoms, render
 
 from wiggles_em.atoms import Atom
 from wiggles_em.bfactors import (
@@ -17,6 +18,7 @@ from wiggles_em.bfactors import (
     restore_bfactors,
     stash_bfactors,
 )
+from wiggles_em.deformation import deformation_view
 from wiggles_em.port import FakePort, PortError
 
 ATOMS = [
@@ -387,13 +389,6 @@ def test_a_view_that_stashes_twice_says_so_once():
 
     Existing tests use substring checks over the joined notes, so none of them
     could see a duplicate."""
-    import sys
-
-    sys.path.insert(0, "tests")
-    from conftest import make_atoms, render
-
-    from wiggles_em.deformation import deformation_view
-
     rows = [("A", str(i), "ALA", "CA", "", 1.0, 20.0) for i in range(1, 5)]
     start = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0), (3.0, 0.0, 0.0)]
     end = [(0.5, 0.0, 0.0), (1.5, 0.0, 0.0), (2.5, 0.0, 0.0), (3.5, 0.0, 0.0)]
@@ -407,3 +402,34 @@ def test_a_view_that_stashes_twice_says_so_once():
 
     preservation = [n for n in drawn.pymol.notes if "values are held" in n]
     assert len(preservation) == 1, f"note repeated {len(preservation)}x: {preservation}"
+
+
+def test_a_reused_backend_reports_each_render_afresh():
+    """`_noted` is cleared per render and keyed on the note text, not the object.
+
+    A host may hold one PymolBackend across two views — `draw()` returns it
+    "for its record". Suppressing by object alone meant the second render's note
+    was swallowed, and since the note for an object *changes* when its state
+    does, what survived was the stale one: the user followed the recovery advice,
+    the values were genuinely stashed, and the report still said they were gone.
+    """
+    from wiggles_em.backends.pymol import PymolBackend
+    from wiggles_em.scene import ColorByScalar, ScalarField, Scene, Sel
+
+    rows = [("A", "1", "MET", "CA", "", 1.0, 11.0, "m", 1)]
+    port = FakePort({"iterate_to_list": rows})
+    scene = Scene([ColorByScalar(Sel.obj("m"), ScalarField.per_atom([(("m", "1"), 0.5)]), (0.0, 1.0))])
+
+    mark_bfactors_destroyed("m")
+    backend = PymolBackend(port, preserve_bfactors=True, normalised=None)
+    backend.render(scene)
+    assert "gone from this session" in "\n".join(backend.notes)
+
+    clear_stash("m")          # the user follows exactly the advice they were given
+    backend.render(scene)
+
+    assert has_stash("m"), "precondition: the second render really did stash"
+    assert "values are held" in "\n".join(backend.notes), (
+        "the corrected note was swallowed, so the report still claims the "
+        f"originals are gone while they are held: {backend.notes}"
+    )

@@ -549,7 +549,10 @@ class TestAnUnrenderableSceneIsRefusedNotReturned:
         report, _ = local_resolution_view("main", "res", normalised=False)
 
         assert "rms" in report.lower()
-        assert "normalize_ccp4_maps" in report, (
+        # The affirmative form. Bare "normalize_ccp4_maps" also appears in the
+        # line that *withholds* the reload remedy, so it cannot distinguish the
+        # setting being named from the remedy being offered.
+        assert "normalize_ccp4_maps is OFF" in report, (
             "the report should name the session setting that makes this "
             f"impossible, since that is what the user can change:\n{report}"
         )
@@ -690,7 +693,11 @@ class TestTheRefusalDescribesTheSituationTheUserIsIn:
         port = self._maps(tmp_path)
         report, _ = local_resolution_view("main", "res", normalised=False)
 
-        assert "normalisation on" in report or "normalize_ccp4_maps, on" in report, (
+        # `normalize_ccp4_maps, on` and not "normalisation on": the latter is a
+        # substring of "Reloading with normalisation on would not help", which is
+        # the message that withholds this remedy. An assertion satisfied by the
+        # negation of what it asserts is worse than no assertion.
+        assert "normalize_ccp4_maps, on" in report, (
             f"the only remedy that works on this path is not offered:\n{report}"
         )
 
@@ -761,7 +768,10 @@ class TestEveryRefusalOffersATakeableRemedy:
         report, _ = local_resolution_view("main", "res", **kwargs)
 
         assert "REFUSED" in report, report
-        assert "normalize_ccp4_maps" in report and "Reload" in report, (
+        # The literal command the user would type, in the direction this
+        # session needs. "Reload" alone matches "Reloading ... would not help".
+        wanted = "on" if kwargs.get("normalised") is False else "off"
+        assert f"normalize_ccp4_maps, {wanted}" in report, (
             f"{label}: no reload remedy offered:\n{report}"
         )
 
@@ -857,3 +867,28 @@ class TestFollowingTheRemedyLeavesTheUserBetterOff:
         assert "normalised=False" in report, (
             f"reloading alone cannot change this session's behaviour:\n{report}"
         )
+
+
+def test_the_withholding_message_is_not_mistaken_for_the_remedy(tmp_path):
+    """The guard on the guards.
+
+    Three assertions in this file checked for the reload remedy with substrings
+    that the message *withholding* it also contains — "Reload" matches
+    "Reloading ... would not help", and a bare "normalize_ccp4_maps" matches the
+    line stating the setting. All three passed on the negation of what they
+    asserted, which is the same failure that opened this whole exercise: a test
+    checking how a string was spelled rather than what it meant.
+    """
+    main = write_map(tmp_path, "main.mrc", rms=-1.0)
+    res = write_map(tmp_path, "res.mrc", rms=-1.0)  # both unusable -> remedy withheld
+    port = FakePort({"get_names": ["main", "res"], "iterate_to_list": []})
+    load_map(port, main, "main", provenance=Provenance.MEASURED)
+    load_map(port, res, "res", provenance=Provenance.MEASURED)
+
+    report, _ = local_resolution_view("main", "res", normalised=False, level=2.0, units="sigma")
+
+    assert "would not help" in report, f"expected the withholding message:\n{report}"
+    assert "normalize_ccp4_maps, on" not in report, (
+        "the affirmative form must not appear in the message that withholds the "
+        f"remedy, or the guards cannot tell them apart:\n{report}"
+    )
