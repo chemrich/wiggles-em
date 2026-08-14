@@ -13,12 +13,36 @@ dist/
 # `chemrich/wiggles` is private and `PUBLICATION-GATE.md` holds ten open items
 # gating the compendium's prose: its load-bearing findings rest on preprints,
 # and publishing them under this repo's name turns each into a citable public
-# assertion. The plan documents also describe protean, which is private.
+# assertion.
 #
 # **No trailing slashes, deliberately.** A trailing slash matches a directory
 # and *not* a symlink to one, which is exactly how protean came to commit
 # `viewer/node_modules` as a mode-120000 link past a `viewer/node_modules/`
 # rule. Every entry below is a symlink, so every entry below is bare.
 compendium
-docs/plans
 tools/compendium
+
+# The plan and method documents now live *here* rather than being symlinked in
+# — see docs/plans/HANDOFF.md. So `docs/plans` can no longer be ignored
+# wholesale, and the rule is **deny-by-default with an allow-list**, never the
+# reverse.
+#
+# That direction is load-bearing and was nearly learned the expensive way. This
+# directory is a drop point: the conversation working in protean left a handover
+# file here on 2026-08-14 whose own second paragraph read "this lives in
+# docs/plans/, which wiggles-em gitignores, so nothing here can reach the public
+# repo by accident" — written hours before that stopped being true. Under a
+# name-the-private-ones rule it would have been published by the next `git add
+# -A`. Under this rule a new file is ignored until someone adds a line below,
+# which is a deliberate act.
+#
+# The four still symlinked from ../wiggles (SPEC, PUBLICATION-GATE,
+# REPOSITORIES, MOVING) need no entry: they are simply not allow-listed.
+docs/plans/*
+!docs/plans/SPLIT.md
+!docs/plans/PROTEAN-INTEGRATION.md
+!docs/plans/HANDOFF.md
+!docs/plans/GUIDELINES.md
+!docs/plans/FIX-PLAN.md
+!docs/plans/M5-RESULTS.md
+!docs/plans/REVIEW-2026-08-13.md
