@@ -6,3 +6,19 @@ __pycache__/
 .mypy_cache/
 dist/
 *.egg-info/
+
+# Private working material, symlinked in from ../wiggles so this is the only
+# directory anyone has to work in. NONE OF IT MAY BE COMMITTED HERE.
+#
+# `chemrich/wiggles` is private and `PUBLICATION-GATE.md` holds ten open items
+# gating the compendium's prose: its load-bearing findings rest on preprints,
+# and publishing them under this repo's name turns each into a citable public
+# assertion. The plan documents also describe protean, which is private.
+#
+# **No trailing slashes, deliberately.** A trailing slash matches a directory
+# and *not* a symlink to one, which is exactly how protean came to commit
+# `viewer/node_modules` as a mode-120000 link past a `viewer/node_modules/`
+# rule. Every entry below is a symlink, so every entry below is bare.
+compendium
+docs/plans
+tools/compendium
