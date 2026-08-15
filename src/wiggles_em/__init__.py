@@ -61,7 +61,41 @@ from wiggles_em.port import BridgePort, FakePort, PortError, PymolPort, SendRequ
 from wiggles_em.provenance import Provenance, declare, provenance_of
 from wiggles_em.qscore import qscore_view
 
+#: The tool-level entry points a host exposes to its users, by name.
+#:
+#: Declared rather than inferred. ``__all__`` also carries value types
+#: (``Scene``, ``Colour``, ``MapStats``), conversions (``to_sigma``) and
+#: plumbing (``restore_bfactors``), and no honest rule separates a *tool* from
+#: those by shape alone — ``map_info`` and ``read_map_header`` differ in
+#: standing, not in signature.
+#:
+#: This is what ``SPEC.md`` reconciles against. The compendium argues for a
+#: tool in an entry's ``implies:`` field, the spec reconciles those into a
+#: surface, and ``tools/check_spec.py`` in the wiggles repo checks the three
+#: agree. It used to ask *MCPymol* what it registered, which made one consumer's
+#: subset look like the package's surface; a tool MCPymol or protean cannot host
+#: is a known gap in that host, not drift in the spec.
+#:
+#: ``restore_bfactors`` is deliberately absent: it undoes a side effect of three
+#: other tools and argues for nothing on its own.
+TOOLS: tuple[str, ...] = (
+    "occupancy_view",
+    "altloc_view",
+    "ensemble_spread_view",
+    "morph_states",
+    "qscore_view",
+    "map_info",
+    "load_map",
+    "density_view",
+    "local_resolution_view",
+    "load_ensemble",
+    "latent_traverse_view",
+    "deformation_view",
+    "composition_view",
+)
+
 __all__ = [  # noqa: RUF022
+    "TOOLS",
     # the fourteen views, grouped by tier rather than alphabetically
     "occupancy_view",
     "altloc_view",

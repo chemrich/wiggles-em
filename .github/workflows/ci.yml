@@ -88,11 +88,11 @@ jobs:
         # green — "N passed" simply gets smaller. Same shape as the bug where
         # protean's browser job passed with twenty new tests unexecuted.
         #
-        # 576 selected of 590, measured 2026-08-14 on 3.10 through 3.13. The 14
+        # 579 selected of 593, measured 2026-08-14 on 3.10 through 3.13. The 14
         # deselected are test_selection_live.py (11, `live`, needs a running
         # PyMOL) and test_mapinfo_live.py (3, `network`, downloads from EMDB).
         #
-        # Of the 576, 16 skip without optional inputs and one more —
+        # Of the 579, 16 skip without optional inputs and one more —
         # `test_the_palette_matches_pymols_own` — skips unless a `pymol` binary
         # is on PATH. It is a *skip*, not a deselect, so it is inside this
         # count: CI collects it and reports it skipped.
@@ -108,7 +108,7 @@ jobs:
         # under `-e` kills the step before it can print why. Check pytest's own
         # status first, then count, tolerating grep's empty-match exit.
         run: |
-          expected=576
+          expected=579
           if ! out=$(uv run pytest --collect-only -q 2>&1); then
             echo "::error::pytest could not collect the suite at all — see below."
             printf '%s\n' "${out}" | tail -25

@@ -47,3 +47,35 @@ def test_the_marker_is_empty():
     when a file is created with an editor that adds a newline."""
     package = Path(wiggles_em.__file__).parent
     assert (package / "py.typed").read_text() == ""
+
+
+# ── the declared tool surface ───────────────────────────────────────────────
+
+
+def test_every_declared_tool_is_exported_and_callable():
+    """`TOOLS` is what `SPEC.md` reconciles against, so a name in it that does
+    not resolve would make the spec agree with nothing."""
+    for name in wiggles_em.TOOLS:
+        assert name in wiggles_em.__all__, f"{name} is in TOOLS but not exported"
+        assert callable(getattr(wiggles_em, name, None)), f"{name} is not callable"
+
+
+def test_no_view_is_missing_from_the_declared_surface():
+    """The load-bearing half. A declared list rots the moment someone adds a
+    view and forgets it — and the symptom would be `check_spec.py` quietly
+    reconciling a smaller surface than the package actually offers, which is
+    the exact failure re-pointing it away from MCPymol was meant to end.
+
+    Only `_view` names are checked. Loaders and `morph_states` have to be added
+    by hand, but views are the thing this package grows.
+    """
+    views = {name for name in wiggles_em.__all__ if name.endswith("_view")}
+    missing = views - set(wiggles_em.TOOLS)
+    assert not missing, (
+        f"{sorted(missing)} exported but not in TOOLS. Add them, so the spec "
+        f"reconciles against the whole surface."
+    )
+
+
+def test_the_declared_surface_holds_no_duplicates():
+    assert len(wiggles_em.TOOLS) == len(set(wiggles_em.TOOLS))
