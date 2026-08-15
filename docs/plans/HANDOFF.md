@@ -160,10 +160,20 @@ do latent traversals until Mol\* grows a movie timeline.
    there. `SizeByScalar` and `Label` cannot be honoured at all, and `Hide` only
    for `Rep.EVERYTHING`. Step 3 is unaffected; `ensemble_spread_view` is
    blocked on a protean-side size theme.
-2. **Re-verify the overdue preprints** — `limits` (arXiv:2606.14449),
-   `cryospire` (arXiv:2506.09063) and three 2025–26 local-resolution preprints
-   are past the "re-verify after a few months" rule, and that rule now carries
-   more weight since a preprint may be a method's only source.
+2. ~~**Re-verify the overdue preprints**~~ **DONE 2026-08-15** (wiggles
+   `0a6b7fc`). Three of the five had been published: EMReady2 (Nat Commun
+   17:6493), LocScale-2.0 (Nat Commun) and `cryospire` (NeurIPS 38). CryoLVM
+   is at an unrecorded v2; `limits` is still v1 and still preprint-only, which
+   is the case the rule exists for. CryoBench's `[unverified]` NeurIPS
+   placement was confirmed at the same time.
+
+   **Verified against Crossref, not the preprint servers** — an arXiv page
+   shows a journal reference only if an author adds one, and arXiv showed none
+   for `cryospire`, which has been in NeurIPS proceedings since 2025.
+
+   **Left open:** `emerging` means *preprint-admitted*, and `cryospire` no
+   longer is. Whether peer review alone promotes it is a decision about what
+   the column means.
 3. ~~**`check_spec.py`**~~ **DONE 2026-08-15** — reconciles against
    `wiggles_em.TOOLS`, with per-consumer coverage reported and never failed on.
    It found four drifts on its first run: tier 3 had shipped while `SPEC.md`
