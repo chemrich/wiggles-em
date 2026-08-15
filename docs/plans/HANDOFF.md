@@ -12,26 +12,46 @@ and keeps its own copy forever, and the live work is getting protean to consume
 
 ## Work in `~/code/wiggles-em`. There is one directory now.
 
-Consolidated 2026-08-14. `~/code/wiggles-em` is the working directory for
-everything, and **as of 2026-08-14 it is also the git home for the plan** —
-this file included. `~/code/wiggles` remains the git home of record for the
-compendium and the material the publication gate still holds.
+Consolidated 2026-08-14, and **finished on 2026-08-16: there is one repository
+now.** `~/code/wiggles-em` holds everything — the package, the plan, and the
+unpublished material. **There are no symlinks left**, and `~/code/wiggles` is a
+**frozen archive**: it still contains every file at the commit it was frozen at,
+and it is not to be edited.
 
     ~/code/wiggles-em/
       src/, tests/          tracked, public
       docs/plans/           tracked, public — the plan and method documents,
                             including this one
-      compendium         -> ../wiggles/compendium          private, gitignored
-      docs/plans/SPEC.md -> ../../../wiggles/SPEC.md       private, gitignored
-        …and PUBLICATION-GATE.md, REPOSITORIES.md, MOVING.md, likewise
-      tools/compendium   -> ../../wiggles/tools            private, gitignored
+      tools/                tracked, public — check_divergence.py
+      private/              IGNORED WHOLESALE, no allow-list
+        compendium/         the 17 entries, README, _TEMPLATE
+        SPEC.md  PUBLICATION-GATE.md  REPOSITORIES.md  MOVING.md
+        FLATIRON-REVIEW.md  FRAME-QUALITY.md
+        tools/              check_gate.py, check_spec.py, livefire.py
 
-The plan moved because keeping it next door made it **stale**: editing it meant
-reaching into another repo, so it did not get edited, and it went on describing
-a closed gap as open. The compendium did not move, because the gate's ten open
-items are exactly the reason it is private — its load-bearing findings rest on
-preprints, and publishing them under this repo's name turns each into a citable
-public assertion.
+The plan moved on 2026-08-14 because keeping it next door made it **stale**:
+editing it meant reaching into another repo, so it did not get edited, and it
+went on describing a closed gap as open. The compendium followed on 2026-08-16
+for the same reason, once `private/` existed to receive it.
+
+**The gate is unchanged.** Its ten open items are still the reason the
+compendium is unpublished — its load-bearing findings rest on preprints, and
+publishing them under this repo's name would turn each into a citable public
+assertion. Living inside a public repository changes nothing, because nothing in
+`private/` is tracked.
+
+`check_gate.py` was updated to say so correctly. It used to ask `gh repo view`
+whether the *repository* was public, which was right while the compendium was
+the whole content of a private repo. That proxy inverts here — visibility says
+PUBLIC while every gated file is unpublished — so it now asks git whether the
+material is **tracked**. Untracked cannot have been pushed, whatever the repo's
+visibility.
+
+Both scripts resolve their root as `Path(__file__).parent.parent`, so the
+mirrored layout under `private/` means they run unmodified:
+
+    python3 private/tools/check_gate.py
+    uv run python private/tools/check_spec.py
 
 **Note what publishing the plan disclosed**, since it was a deliberate choice
 and not an oversight: these documents describe protean in detail — its
@@ -46,17 +66,26 @@ accident" — true when written, false hours later, and staged by the next
 `git add -A`. An allow-list means a new file stays private until somebody
 deliberately adds a line.
 
-**Symlinks, not copies**, for what remains: a copy would leave those documents
-untracked in a public repo while the version-controlled originals sat next
-door, which is the two-maintained-copies trap this project has already paid for
-twice. **No trailing slashes** on their ignore rules — a trailing slash matches
-a directory and not a symlink to one, which is how protean came to commit
-`viewer/node_modules` as a mode-120000 link past its own rule.
+**The symlinks are gone, and with them the rule that used to sit here.** Until
+2026-08-16 the argument was *symlinks, not copies* — a copy would leave those
+documents untracked in a public repo while the version-controlled originals sat
+next door, which is the two-maintained-copies trap this project has already paid
+for twice. What made that argument moot was freezing the other side: `wiggles`
+is an archive, so there is exactly one live copy and nothing to diverge from.
 
-**Edit the real path, not the link**, for those four. Claude Code's file tools
-refuse to write through a symlink, so an edit to `SPEC.md` and the other three
-has to name `~/code/wiggles/<file>.md`. The plan documents are ordinary files
-now and need none of that.
+**That safety is conditional, and the condition is the freeze.** Editing
+`~/code/wiggles` re-creates the fork this arrangement was designed to avoid. Do
+not.
+
+The practical gain is that everything is now an ordinary file. Claude Code's
+file tools refuse to write through a symlink, so editing `SPEC.md` used to mean
+naming `~/code/wiggles/SPEC.md` explicitly — which is precisely why those
+documents went stale. Nothing needs that any more.
+
+**No trailing slashes** in `.gitignore` remains the standing rule even with no
+symlinks left: a trailing slash matches a directory and not a symlink to one,
+which is how protean came to commit `viewer/node_modules` as a mode-120000 link
+past its own rule.
 
 ---
 
