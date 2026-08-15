@@ -77,6 +77,7 @@ NOT_TOOLS = {
     "Ensemble",
     "MapHeader",
     "MapStats",
+    "DensityJob",
     "Method",
     "Populations",
     "Provenance",
@@ -90,6 +91,8 @@ NOT_TOOLS = {
     "SendRequestPort",
     # conversions and readers, below the level of a tool
     "contains_absence_claim",
+    "read_density_job",
+    "read_deconvolved_weights",
     "fetch_atoms",
     "grid_differences",
     "loaded_ensemble",
