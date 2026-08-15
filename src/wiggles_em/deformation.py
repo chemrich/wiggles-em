@@ -1,11 +1,16 @@
 """Per-atom displacement between conformations: the well-supported claim.
 
 Of everything cryo-EM heterogeneity methods produce, **motion is the part that
-survives blind testing.** The Flatiron challenge put 41 submissions on the same
-data and reported that the molecular motions they identified resembled both each
-other and the ground truth; it was the *population distributions* that fell
-apart. So this tool is built with confidence, and its legend says what it is
-showing rather than hedging it into uselessness.
+survives independent testing.** The Flatiron challenge put 41 submissions across
+two datasets and reported that the molecular motions they identified resembled
+both each other and the ground truth; it was the *population distributions* that
+fell apart. So this tool is built with confidence, and its legend says what it
+is showing rather than hedging it into uselessness.
+
+(The challenge was blind in its first round only — participants in later rounds
+had seen the simulated dataset's ground-truth distribution. That qualifier
+matters for the population result, not for this one: the motion finding is
+reported across all submissions and is the best-supported claim in the paper.)
 
 That confidence is bounded in one specific way. A displacement field is a
 statement about **where density moved**, not about how many particles moved that
@@ -56,9 +61,9 @@ DEFAULT_MAX_ARROWS = 60
 MIN_ARROW_LENGTH = 0.25
 
 MOTION_LEGEND = (
-    "MOTION IS THE WELL-SUPPORTED CLAIM HERE. In a 41-submission blind challenge "
-    "the recovered molecular motions resembled both each other and the ground "
-    "truth; it was relative populations that most submissions got wrong. So read "
+    "MOTION IS THE WELL-SUPPORTED CLAIM HERE. In a 41-submission community "
+    "challenge the recovered molecular motions resembled both each other and the "
+    "ground truth; it was relative populations that most submissions got wrong. So read "
     "these arrows as: density moved this way. Do NOT read them as: this fraction "
     "of particles moved this way. No population is shown, and none can be "
     "inferred from an arrow's length or colour."
