@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `wiggles_em.TOOLS` — the tool-level entry points, declared rather than
+  inferred. `__all__` also carries value types, conversions and plumbing, and
+  no rule separates a tool from those by shape: `map_info` and
+  `read_map_header` differ in standing, not in signature. This is what
+  `SPEC.md` reconciles against; a build predating it cannot answer that
+  question at all, so `tools/check_spec.py` refuses rather than guessing.
+- `py.typed`. Without the PEP 561 marker a package is invisible to type
+  checkers however thoroughly it is annotated, so consumers got nothing from
+  this one being mypy-clean. Verified present in a built wheel.
+- `MapStats` and `StatsSource`. `to_sigma`/`to_absolute` **now take a
+  `MapStats`, not a `MapHeader`** — a breaking change to two public functions.
+  A header's statistics are a *claim*: a cropped or rescaled map keeps whatever
+  header nobody updated, and Mol\*'s `grid.stats` are those stored fields
+  passed through unexamined. A host that walks the voxels can now convert
+  against what it measured, including for a map whose header says `rms=-1`,
+  which no header-based call could convert at all. Migrate with
+  `MapStats.stated(header)`.
+- `resolve_colour` and `ramp`, with `RED_WHITE_BLUE`, `BLUE_WHITE_RED` and
+  `RED_YELLOW_GREEN`.
+
+### Changed
+
+- **A `Scene` carries colour as RGB, never as a viewer's colour name.** Every
+  string a view emitted was a *PyMOL* name (`grey70`, `skyblue`), so a second
+  viewer could only honour it by reimplementing PyMOL's table — which protean
+  had done. `ColorByScalar.palette` likewise: it was a PyMOL *spectrum* name
+  and is now colour stops, low value first. Direction is the point —
+  `red_white_blue` and `blue_white_red` differ only in order, and a viewer with
+  one fixed ramp can honour exactly one of them. Names remain valid
+  *arguments*; a view's signature is not the seam.
+- Two colour values were wrong and are corrected against a real PyMOL 3.1:
+  `skyblue` is `(0.2, 0.5, 0.8)` and `lightblue` is `(0.75, 0.75, 1.0)`. The
+  grey ramp is `n/99`, not `n/100` — it runs inclusive, so `grey99` is white.
+
 - The package, extracted from MCPymol's `mcpymol.wiggles`. Fourteen views
   across three tiers: occupancy and ensembles, maps and local resolution, and
   heterogeneity-method output.

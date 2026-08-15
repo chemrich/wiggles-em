@@ -272,9 +272,10 @@ like the other. A vocabulary audit is not an interface audit.
    message naming the missing capability, not render three-quarters of itself.
 7. ~~**Re-point `check_spec.py`** (phase 6)~~ **DONE 2026-08-15.** Reconciles
    against `wiggles_em.TOOLS`; per-consumer coverage is reported, never failed
-   on. protean shows 0/13 with a reason — it hosts a Scene backend and
-   registers no tool wrappers yet — which is the honest reading of step 3
-   being open.
+   on. protean is listed with a reason rather than a fraction —
+   `hosts a Scene backend; no tool wrappers registered yet` — which is the
+   honest reading of step 3 being open. Listed rather than omitted: a consumer
+   missing from that table would look like one with no gaps.
 
 ## What protean asks of wiggles-em
 

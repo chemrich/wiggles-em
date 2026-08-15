@@ -164,8 +164,11 @@ do latent traversals until Mol\* grows a movie timeline.
    `cryospire` (arXiv:2506.09063) and three 2025–26 local-resolution preprints
    are past the "re-verify after a few months" rule, and that rule now carries
    more weight since a preprint may be a method's only source.
-3. **`check_spec.py`** — still reconciles `SPEC.md` against what *MCPymol
-   registers*; should reconcile against what `wiggles_em` exposes.
+3. ~~**`check_spec.py`**~~ **DONE 2026-08-15** — reconciles against
+   `wiggles_em.TOOLS`, with per-consumer coverage reported and never failed on.
+   It found four drifts on its first run: tier 3 had shipped while `SPEC.md`
+   still called `load_ensemble`, `latent_traverse_view`, `deformation_view` and
+   `composition_view` unbuilt.
 4. **The divergence audit belongs in CI.** Two maintained copies is now the
    steady state and nothing checks they agree. The audit exists as a one-off:
    every public name in `mcpymol.wiggles` has a counterpart in `wiggles_em`.

@@ -64,7 +64,7 @@ from wiggles_em.qscore import qscore_view
 #: The tool-level entry points a host exposes to its users, by name.
 #:
 #: Declared rather than inferred. ``__all__`` also carries value types
-#: (``Scene``, ``Colour``, ``MapStats``), conversions (``to_sigma``) and
+#: (``MapStats``, ``MapHeader``, ``Atom``), conversions (``to_sigma``) and
 #: plumbing (``restore_bfactors``), and no honest rule separates a *tool* from
 #: those by shape alone — ``map_info`` and ``read_map_header`` differ in
 #: standing, not in signature.

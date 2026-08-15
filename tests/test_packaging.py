@@ -60,21 +60,66 @@ def test_every_declared_tool_is_exported_and_callable():
         assert callable(getattr(wiggles_em, name, None)), f"{name} is not callable"
 
 
-def test_no_view_is_missing_from_the_declared_surface():
-    """The load-bearing half. A declared list rots the moment someone adds a
-    view and forgets it — and the symptom would be `check_spec.py` quietly
-    reconciling a smaller surface than the package actually offers, which is
-    the exact failure re-pointing it away from MCPymol was meant to end.
+#: Exports that are deliberately not tools. Value types, conversions, the port
+#: protocol, and plumbing that undoes another tool's side effect.
+#:
+#: The **exclusion** list is the maintained one, not the inclusion list. That
+#: direction matters: forgetting to classify a new export fails the test below,
+#: with a message naming it. Guarding only `_view` names instead let a
+#: non-view tool — a second loader, an exporter — reach `__all__` unclassified,
+#: and the first symptom was `check_spec.py` reporting "SPEC.md marks `X` as
+#: BUILT, but wiggles-em does not offer it… the tick is wrong", sending the
+#: maintainer to edit the spec when the defect was a missing TOOLS entry.
+NOT_TOOLS = {
+    "TOOLS",
+    # value types
+    "Atom",
+    "Ensemble",
+    "MapHeader",
+    "MapStats",
+    "Method",
+    "Provenance",
+    "StatsSource",
+    # the port protocol and its implementations
+    "BridgePort",
+    "FakePort",
+    "PortError",
+    "PymolPort",
+    "SendRequestPort",
+    # conversions and readers, below the level of a tool
+    "contains_absence_claim",
+    "fetch_atoms",
+    "grid_differences",
+    "loaded_ensemble",
+    "provenance_of",
+    "read_map_header",
+    "to_absolute",
+    "to_sigma",
+    "declare",
+    # plumbing: undoes a side effect of three tools, argues for nothing itself
+    "clear_stash",
+    "restore_bfactors",
+}
 
-    Only `_view` names are checked. Loaders and `morph_states` have to be added
-    by hand, but views are the thing this package grows.
+
+def test_every_export_is_classified_as_tool_or_not_tool():
+    """The load-bearing half. A declared list rots the moment someone adds an
+    entry point and forgets it, and the symptom would be `check_spec.py`
+    reconciling a smaller surface than the package offers — the exact failure
+    re-pointing it away from MCPymol was meant to end.
+
+    Exact equality, so a new export must be put in one bucket or the other.
     """
-    views = {name for name in wiggles_em.__all__ if name.endswith("_view")}
-    missing = views - set(wiggles_em.TOOLS)
-    assert not missing, (
-        f"{sorted(missing)} exported but not in TOOLS. Add them, so the spec "
-        f"reconciles against the whole surface."
+    exported = set(wiggles_em.__all__)
+    unclassified = exported - NOT_TOOLS - set(wiggles_em.TOOLS)
+    assert not unclassified, (
+        f"{sorted(unclassified)} exported but classified neither way. Add each "
+        f"to wiggles_em.TOOLS if the research argued for it as a tool, or to "
+        f"NOT_TOOLS here if it is a value type, a conversion or plumbing."
     )
+
+    stale = set(wiggles_em.TOOLS) - exported
+    assert not stale, f"{sorted(stale)} in TOOLS but no longer exported"
 
 
 def test_the_declared_surface_holds_no_duplicates():
