@@ -55,8 +55,9 @@ DEFAULT_MAX_VOLUMES = 50
 class Method(Enum):
     """The heterogeneity method that produced an ensemble.
 
-    Named rather than ranked. The Flatiron blind challenge found no method
-    consistently outperforms the others, so this package treats them as
+    Named rather than ranked. The Flatiron challenge found no method
+    consistently outperforms the others — and no *category* of method either,
+    which the paper states explicitly — so this package treats them as
     interchangeable producers of an ensemble and stays out of adjudicating
     them — see the compendium entry `benchmarks`.
     """

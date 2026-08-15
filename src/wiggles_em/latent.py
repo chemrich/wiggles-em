@@ -1,14 +1,28 @@
 """Stepping through a latent trajectory, without claiming what it cannot.
 
 This is the tool the compendium is most careful about, and the care is not
-decorative. The Flatiron Institute blind challenge put 41 submissions on the
-same thyroglobulin data and found the field recovers **motion** well and
-**populations** badly: the simulated ground truth had three modes, most
-submissions recovered two, and only three of the 41 found all three. The mode
-they missed was the middle one. `limits` gives the information-theoretic reason
-— measurement noise sets a floor on how finely conformation space can be
-resolved, and a state sandwiched between two others is what that floor eats
-first.
+decorative. The Flatiron Institute challenge put 41 submissions across two
+thyroglobulin datasets, one of them simulated with a known answer. That
+simulated ground truth had three population modes; most submissions reported
+two, missing the middle one, and **only three submissions reported all three**.
+
+Two details of that result matter more than the headline, and both were missed
+until the paper itself was read on 2026-08-15:
+
+- **Only the first round was blind**, and all three of the submissions that
+  found the middle mode came from the second, non-blind round. So *no blind
+  submission recovered it at all* — a stronger result than the one this
+  docstring used to claim.
+- **41 is the count across both datasets.** The population analysis is on the
+  simulated dataset alone, and the paper gives no denominator for it. "Three of
+  41" was never a ratio the paper stated.
+
+`limits` offers an information-theoretic reason — measurement noise setting a
+floor on how finely conformation space can be resolved, with a state sandwiched
+between two others eaten first. Note the challenge itself attributes the
+difficulty to image noise, the small scale of the motion, and **too few images
+in the trough**, which is a different explanation. That tension is unresolved;
+see `FLATIRON-REVIEW.md`.
 
 Two SPEC invariants fall out of that, and both are enforced here.
 
@@ -83,12 +97,12 @@ ABSENCE_CLAIMS: tuple[str, ...] = (
 
 GAP_LEGEND = (
     "A GAP IS NOT AN ABSENCE. An empty region between frames is a region of "
-    "UNKNOWN OCCUPANCY, not a state the molecule avoids. In a blind challenge on "
-    "41 submissions the commonest failure was missing an intermediate state that "
-    "was genuinely present — usually the middle one of three — and there is an "
-    "information-theoretic floor underneath that result, not just method error. "
-    "Read this trajectory as: these conformations are supported. Read nothing "
-    "into what lies between them."
+    "UNKNOWN OCCUPANCY, not a state the molecule avoids. In a community "
+    "challenge whose first round was blind, the commonest failure was missing "
+    "an intermediate state that was genuinely present — the middle one of three "
+    "— and NO blind submission recovered it: the only three that did had "
+    "already been shown the answer. Read this trajectory as: these "
+    "conformations are supported. Read nothing into what lies between them."
 )
 
 #: What the viewer cannot tell the user, said out loud.
