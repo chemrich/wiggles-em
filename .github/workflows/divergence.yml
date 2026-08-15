@@ -40,10 +40,14 @@ jobs:
         # useless: the audit exists to detect the two copies drifting apart,
         # and pinning one side makes it report agreement *while* they drift.
         #
-        # `--no-deps`: only the module is needed, for import and introspection.
-        # Nothing here runs PyMOL, and MCPymol's full dependency set would drag
-        # in a viewer stack this job has no use for.
-        run: uv pip install --no-deps 'mcpymol @ git+https://github.com/chemrich/MCPymol@main'
+        # **With dependencies.** `--no-deps` was tried first, on the reasoning
+        # that only the module is needed for import and introspection — and it
+        # failed here with `No module named 'pydantic'`, because
+        # `import mcpymol.wiggles` imports the `mcpymol` package first and that
+        # pulls the MCP server's stack. It passed locally only because that
+        # venv already had the full tree installed, which is the difference
+        # between a check and a check that has been run where it will run.
+        run: uv pip install 'mcpymol @ git+https://github.com/chemrich/MCPymol@main'
 
       - name: confirm the comparison can actually be made
         # Without this, a failure to install reads downstream as "no
