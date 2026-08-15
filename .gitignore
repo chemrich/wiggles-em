@@ -46,3 +46,17 @@ docs/plans/*
 !docs/plans/FIX-PLAN.md
 !docs/plans/M5-RESULTS.md
 !docs/plans/REVIEW-2026-08-13.md
+
+# Working notes that are not for publication, so that they no longer have to be
+# written in the private `wiggles` repo just to be kept out of this one.
+#
+# **Ignored wholesale, with no allow-list, and it must stay that way.** The
+# `docs/plans` rule above is deny-by-default *because* that directory holds
+# tracked public documents and so cannot be ignored outright. This one holds
+# nothing public by definition, which makes the stronger rule available — and
+# the stronger rule is the one that cannot be got wrong. Anything in here that
+# turns out to be publishable gets **moved out** to `docs/`, never allow-listed
+# back in, because an allow-list is where the near-miss on 2026-08-14 came from.
+#
+# Bare, no trailing slash, for the symlink reason at the top of this file.
+private
