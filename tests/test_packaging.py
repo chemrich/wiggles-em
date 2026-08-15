@@ -78,8 +78,10 @@ NOT_TOOLS = {
     "MapHeader",
     "MapStats",
     "Method",
+    "Populations",
     "Provenance",
     "StatsSource",
+    "WeightSource",
     # the port protocol and its implementations
     "BridgePort",
     "FakePort",

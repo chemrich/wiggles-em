@@ -57,6 +57,7 @@ from wiggles_em.localres import grid_differences, local_resolution_view
 from wiggles_em.mapinfo import MapHeader, map_info, read_map_header
 from wiggles_em.maps import load_map
 from wiggles_em.occupancy import altloc_view, occupancy_view
+from wiggles_em.populations import Populations, WeightSource
 from wiggles_em.port import BridgePort, FakePort, PortError, PymolPort, SendRequestPort
 from wiggles_em.provenance import Provenance, declare, provenance_of
 from wiggles_em.qscore import qscore_view
@@ -127,6 +128,10 @@ __all__ = [  # noqa: RUF022
     "Provenance",
     "declare",
     "provenance_of",
+    # state occupancies. No tool name yet, deliberately — the value types come
+    # first so a view has something honest to render.
+    "Populations",
+    "WeightSource",
     "Atom",
     "fetch_atoms",
     "clear_stash",
