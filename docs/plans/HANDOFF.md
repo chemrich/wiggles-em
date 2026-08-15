@@ -179,12 +179,27 @@ do latent traversals until Mol\* grows a movie timeline.
    It found four drifts on its first run: tier 3 had shipped while `SPEC.md`
    still called `load_ensemble`, `latent_traverse_view`, `deformation_view` and
    `composition_view` unbuilt.
-4. **The divergence audit belongs in CI.** Two maintained copies is now the
-   steady state and nothing checks they agree. The audit exists as a one-off:
-   every public name in `mcpymol.wiggles` has a counterpart in `wiggles_em`.
-   Last run 2026-08-14 — 69 upstream, 102 in the package, two without
-   counterparts (`residue_selection`, `residue_clause`, both deliberately
-   replaced by `Sel.residues` + `render_selection`).
+4. ~~**The divergence audit belongs in CI.**~~ **DONE 2026-08-15** —
+   `tools/check_divergence.py`, run weekly by `.github/workflows/divergence.yml`
+   and on demand. Four layers: modules, public names, signatures, and
+   **behaviour**. Only the last would have caught either real incident, since
+   both were behavioural changes to functions that existed with matching
+   signatures on both sides — so it runs identical inputs through both copies
+   and compares. Verified by reintroducing the historical provenance bug: it
+   reports `postprocess_emready.mrc` as `nn_enhanced` upstream and `sharpened`
+   here, which is exactly the incident.
+
+   **Not on push or pull_request**, deliberately: the job installs another repo
+   at its moving `main`, so wiring it into PR CI would train everyone to ignore
+   a red tick for reasons unrelated to the commit. And it tracks `@main` rather
+   than a pin, because an audit pinned to a frozen upstream reports agreement
+   *while* the two drift — PyPI cannot serve it either, since the released
+   `mcpymol` predates the subpackage.
+
+   **Two divergences are recorded as OUTSTANDING**: `to_sigma`/`to_absolute`
+   take a `MapStats` here and a `MapHeader` upstream, from this morning's
+   change. They print under "Known divergences" every run rather than being
+   exempted, and the success line says so instead of claiming agreement.
 5. **`9381dbe` is unreviewed**, if anyone wants a tenth round.
 6. Ten items in `PUBLICATION-GATE.md` still gate the compendium prose.
 

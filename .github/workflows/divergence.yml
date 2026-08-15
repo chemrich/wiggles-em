@@ -1,0 +1,56 @@
+name: divergence
+
+# MCPymol keeps its own copy of this code **permanently** — PyPI rejects direct
+# URL dependencies and MCPymol is on PyPI, so it cannot depend on this package
+# while this one stays off PyPI. Two maintained copies is the steady state, and
+# until this workflow nothing checked they agree. Two fixes have already been
+# found here, fixed here, and then found and fixed *again* upstream.
+#
+# **Deliberately not on push or pull_request.** This job installs another
+# repository at its moving `main`, so it can fail for reasons that have nothing
+# to do with the commit under test. Wiring that into PR CI would train everyone
+# to ignore a red tick. It runs on a schedule and on demand, and its failures
+# are about the relationship between two repos rather than about one change.
+on:
+  schedule:
+    # Mondays, 07:00 UTC. Weekly is the right cadence for drift between two
+    # repos that a human merges into: daily would mostly re-report the same
+    # outstanding ports.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+jobs:
+  divergence:
+    name: mcpymol.wiggles vs wiggles_em
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: uv sync
+        run: uv sync --locked --dev
+
+      - name: install MCPymol from source
+        # **From `main`, not a pin.** PyPI's `mcpymol` does not contain
+        # `mcpymol.wiggles` at all — the release predates the merge — so PyPI
+        # cannot answer this question. And a pinned ref would be worse than
+        # useless: the audit exists to detect the two copies drifting apart,
+        # and pinning one side makes it report agreement *while* they drift.
+        #
+        # `--no-deps`: only the module is needed, for import and introspection.
+        # Nothing here runs PyMOL, and MCPymol's full dependency set would drag
+        # in a viewer stack this job has no use for.
+        run: uv pip install --no-deps 'mcpymol @ git+https://github.com/chemrich/MCPymol@main'
+
+      - name: confirm the comparison can actually be made
+        # Without this, a failure to install reads downstream as "no
+        # divergence" — the audit's own exit code covers it, but a job that
+        # says *why* it could not compare is worth the three lines.
+        run: |
+          uv run python -c "import mcpymol.wiggles, wiggles_em; print('both importable')"
+
+      - name: divergence audit
+        run: uv run python tools/check_divergence.py
