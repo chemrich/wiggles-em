@@ -118,10 +118,11 @@ uv run wiggles-map-info emd_30913.map.gz
 ## Where this came from
 
 The research it was distilled from — a cited compendium of cryo-EM
-heterogeneity methods, and the specification the views reconcile to — lives in
-a separate, private repository. Docstrings here name the entry an argument came
-from (`occupancy-two-senses`, `local-resolution`) rather than a path that would
-not resolve.
+heterogeneity methods, and the specification the views reconcile to — is **not
+published**. Several of its load-bearing findings rest on preprints, and it
+stays unpublished until those are resolved. Docstrings here name the entry an
+argument came from (`occupancy-two-senses`, `local-resolution`) rather than a
+path that would not resolve.
 
 The code lived inside MCPymol as `mcpymol.wiggles` between 2026-08-09 and the
 split; it moved out when a second viewer turned up.

@@ -7,20 +7,22 @@ __pycache__/
 dist/
 *.egg-info/
 
-# Private working material, symlinked in from ../wiggles so this is the only
-# directory anyone has to work in. NONE OF IT MAY BE COMMITTED HERE.
+# **The symlinks into ../wiggles are gone** (2026-08-16). The compendium,
+# SPEC.md, PUBLICATION-GATE.md, REPOSITORIES.md and MOVING.md used to be
+# symlinked in from the private `wiggles` repo and ignored here by name. They
+# now live in `private/`, which is ignored wholesale further down, so the
+# per-name rules that used to sit here are gone with them. `chemrich/wiggles` is
+# a frozen archive.
 #
-# `chemrich/wiggles` is private and `PUBLICATION-GATE.md` holds ten open items
-# gating the compendium's prose: its load-bearing findings rest on preprints,
-# and publishing them under this repo's name turns each into a citable public
-# assertion.
+# Nothing about the gate changed: `PUBLICATION-GATE.md` still holds ten open
+# items, the compendium's load-bearing findings still rest on preprints, and
+# publishing them under this repo's name would still turn each into a citable
+# public assertion. What changed is only *where* the unpublished material sits.
 #
-# **No trailing slashes, deliberately.** A trailing slash matches a directory
-# and *not* a symlink to one, which is exactly how protean came to commit
-# `viewer/node_modules` as a mode-120000 link past a `viewer/node_modules/`
-# rule. Every entry below is a symlink, so every entry below is bare.
-compendium
-tools/compendium
+# **No trailing slashes anywhere in this file, deliberately.** A trailing slash
+# matches a directory and *not* a symlink to one, which is exactly how protean
+# came to commit `viewer/node_modules` as a mode-120000 link past a
+# `viewer/node_modules/` rule.
 
 # The plan and method documents now live *here* rather than being symlinked in
 # — see docs/plans/HANDOFF.md. So `docs/plans` can no longer be ignored
@@ -36,8 +38,9 @@ tools/compendium
 # -A`. Under this rule a new file is ignored until someone adds a line below,
 # which is a deliberate act.
 #
-# The four still symlinked from ../wiggles (SPEC, PUBLICATION-GATE,
-# REPOSITORIES, MOVING) need no entry: they are simply not allow-listed.
+# The four that used to be symlinked here from ../wiggles (SPEC,
+# PUBLICATION-GATE, REPOSITORIES, MOVING) are no longer in this directory at
+# all — they moved to `private/` on 2026-08-16.
 docs/plans/*
 !docs/plans/SPLIT.md
 !docs/plans/PROTEAN-INTEGRATION.md
@@ -46,3 +49,21 @@ docs/plans/*
 !docs/plans/FIX-PLAN.md
 !docs/plans/M5-RESULTS.md
 !docs/plans/REVIEW-2026-08-13.md
+
+# Unpublished material: the compendium, SPEC.md, the publication gate and its
+# tools, and working notes. See private/README.md.
+#
+# **Ignored wholesale, with no allow-list, and it must stay that way.** The
+# `docs/plans` rule above is deny-by-default *because* that directory holds
+# tracked public documents and so cannot be ignored outright. This one holds
+# nothing public by definition, which makes the stronger rule available — and
+# the stronger rule is the one that cannot be got wrong. Anything in here that
+# turns out to be publishable gets **moved out**, never allow-listed back in,
+# because an allow-list is where the near-miss on 2026-08-14 came from.
+#
+# This rule is load-bearing in a way the others are not: `private/` holds the
+# whole gated compendium, so without this line a single `git add -A` publishes
+# ten open gate items. That is not hypothetical — on 2026-08-16 the compendium
+# was moved in while this rule sat on an unmerged branch, and `git add -A
+# --dry-run` duly offered to stage all nineteen entries.
+private
