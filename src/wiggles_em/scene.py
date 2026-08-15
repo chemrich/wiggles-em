@@ -202,6 +202,16 @@ class Sense(str, Enum):
     ATOM_OCCUPANCY = "atom-occupancy"
     #: Fraction of imaged *particles* containing a subunit.
     PARTICLE_COMPOSITION = "particle-composition"
+    #: Fraction of imaged *particles* in a given conformational **state**.
+    #:
+    #: Added 2026-08-16, and it is a third sense rather than a variant of the
+    #: second. Compositional occupancy asks *is the subunit there*; state
+    #: occupancy asks *which conformation is it in*. A complex can be 100%
+    #: intact — sense 2 saturated — and still be split evenly between two
+    #: conformations, and the two questions have different answers, different
+    #: units of analysis and different estimators. Merging them would repeat
+    #: with three senses the mistake this enum exists to prevent with two.
+    STATE_OCCUPANCY = "state-occupancy"
 
 
 Colour = str | tuple[float, float, float]

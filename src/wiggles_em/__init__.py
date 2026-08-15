@@ -57,6 +57,7 @@ from wiggles_em.localres import grid_differences, local_resolution_view
 from wiggles_em.mapinfo import MapHeader, map_info, read_map_header
 from wiggles_em.maps import load_map
 from wiggles_em.occupancy import altloc_view, occupancy_view
+from wiggles_em.occupancy_states import state_occupancy_view
 from wiggles_em.populations import Populations, WeightSource
 from wiggles_em.port import BridgePort, FakePort, PortError, PymolPort, SendRequestPort
 from wiggles_em.provenance import Provenance, declare, provenance_of
@@ -94,6 +95,7 @@ TOOLS: tuple[str, ...] = (
     "latent_traverse_view",
     "deformation_view",
     "composition_view",
+    "state_occupancy_view",
 )
 
 __all__ = [  # noqa: RUF022
@@ -114,6 +116,7 @@ __all__ = [  # noqa: RUF022
     "latent_traverse_view",
     "deformation_view",
     "composition_view",
+    "state_occupancy_view",
     # the pieces worth reaching for directly
     "MapHeader",
     "read_map_header",

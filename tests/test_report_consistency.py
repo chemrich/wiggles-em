@@ -65,6 +65,8 @@ from wiggles_em.latent import latent_traverse_view
 from wiggles_em.localres import local_resolution_view
 from wiggles_em.maps import forget_map, load_map
 from wiggles_em.occupancy import altloc_view, occupancy_view
+from wiggles_em.occupancy_states import state_occupancy_view
+from wiggles_em.populations import Populations, WeightSource
 from wiggles_em.port import FakePort
 from wiggles_em.provenance import Provenance
 from wiggles_em.qscore import qscore_view
@@ -197,6 +199,19 @@ def _all_views(tmp_path):
     out.append(("latent_traverse_view (gapped)", *latent_traverse_view("gap"), gap_port))
     forget_ensemble()
 
+    # State occupancy, in both of its rendering modes. The two differ in what
+    # they are allowed to draw, so checking only one would leave the other's
+    # report unguarded — and the non-quantitative branch is the one that has to
+    # say most.
+    occ_dir = tmp_path / "o"
+    occ_dir.mkdir()
+    occ_port, _ = _ensemble(occ_dir, name="occ")
+    good = Populations.declare([0.6, 0.3, 0.1], WeightSource.DECONVOLVED, temperature_k=298.15)
+    out.append(("state_occupancy_view", *state_occupancy_view("occ", good), occ_port))
+    counted = Populations.declare([0.6, 0.3, 0.1], WeightSource.LATENT_HISTOGRAM)
+    out.append(("state_occupancy_view (counted)", *state_occupancy_view("occ", counted), occ_port))
+    forget_ensemble()
+
     return out
 
 
@@ -212,6 +227,8 @@ VIEW_LABELS = [
     "local_resolution_view",
     "latent_traverse_view",
     "latent_traverse_view (gapped)",
+    "state_occupancy_view",
+    "state_occupancy_view (counted)",
 ]
 
 
