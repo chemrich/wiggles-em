@@ -91,6 +91,37 @@ GAP_LEGEND = (
     "into what lies between them."
 )
 
+#: What the viewer cannot tell the user, said out loud.
+#:
+#: The Flatiron challenge measured per-frame resolution against ground truth and
+#: found it ranged from about 9 Å to about 18.5 Å — twofold across submissions,
+#: and "a large range of values" *within* a single submission. This tool draws
+#: every frame at one level in one colour, so a frame built from less data is
+#: rendered exactly like a frame built from more.
+#:
+#: That is a viewer problem specifically: blur reads as floppiness, not as data
+#: quality, so a soft frame looks like a conformational finding rather than a
+#: reconstruction artefact.
+#:
+#: There is deliberately no number attached. Resolution is not in an MRC header;
+#: the FSC that would measure it needs a reference no viewer session has; and a
+#: score derived from the header statistics would look measured without being
+#: measured, which is what `MapStats.stated` vs `.measured` and
+#: `ensemble_spread_view`'s refusal to call spread an uncertainty both exist to
+#: prevent. So this states the limit of the tool rather than a claim about the
+#: caller's ensemble, and points at the job directory, where the answer does
+#: live if it lives anywhere.
+FRAME_QUALITY_LEGEND = (
+    "THESE FRAMES ARE NOT NECESSARILY OF EQUAL QUALITY, and nothing in this render "
+    "distinguishes them. In a community challenge, frame resolution within a single "
+    "submission ranged from about 9 Å to about 18.5 Å, and across submissions it "
+    "varied about twofold. This viewer cannot measure which frame is which: "
+    "resolution is not recorded in a map header, and the Fourier shell correlation "
+    "that would establish it needs a reference this session does not have. Read a "
+    "smooth frame and a detailed frame as equally uncertain unless you know "
+    "otherwise from the job that produced them."
+)
+
 POPULATION_LEGEND = (
     "NO POPULATION IS SHOWN, deliberately. Cryo-EM heterogeneity methods recover "
     "motion reliably and relative populations unreliably; those are different "
@@ -299,6 +330,7 @@ def latent_traverse_view(
         ops.append(Frames(tuple(surfaces), tuple(numbers), build_timeline=build_movie))
     ops.append(Legend(POPULATION_LEGEND))
     ops.append(Legend(GAP_LEGEND))
+    ops.append(Legend(FRAME_QUALITY_LEGEND))
 
     return _report(
         ensemble,
@@ -443,5 +475,7 @@ def _report(
         "  " + POPULATION_LEGEND,
         "",
         "  " + GAP_LEGEND,
+        "",
+        "  " + FRAME_QUALITY_LEGEND,
     ]
     return "\n".join(lines)

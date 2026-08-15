@@ -20,12 +20,13 @@ from test_mapinfo import write_map
 from wiggles_em.heterogeneity import forget_ensemble, load_ensemble, loaded_ensemble
 from wiggles_em.latent import (
     ABSENCE_CLAIMS,
+    FRAME_QUALITY_LEGEND,
     contains_absence_claim,
     frame_levels,
     latent_traverse_view,
 )
 from wiggles_em.port import FakePort, PortError
-from wiggles_em.scene import Frames, Isosurface, Unit
+from wiggles_em.scene import Frames, Isosurface, Legend, Unit
 
 
 @pytest.fixture(autouse=True)
@@ -125,6 +126,54 @@ def test_no_population_is_drawn_and_the_report_says_why(ensemble):
 
     assert "NO POPULATION IS SHOWN" in out
     assert not d.port.calls("ramp_new"), "a density ramp would be a population claim"
+
+
+# ── frame quality: the thing this viewer cannot measure ──────────────────────
+
+
+def test_the_frame_quality_caveat_reaches_the_picture_and_the_report(ensemble):
+    """Both surfaces, because they are read by different people.
+
+    A caller sees the report; a viewer host lowering the Scene sees only the
+    ops. A caveat present in one and not the other is absent for half the
+    audience.
+    """
+    port, name = ensemble()
+    d = render(latent_traverse_view(name), port=port)
+
+    assert "NOT NECESSARILY OF EQUAL QUALITY" in d.report
+    legends = [op.text for op in d.scene.ops if isinstance(op, Legend)]
+    assert FRAME_QUALITY_LEGEND in legends
+
+
+def test_the_frame_quality_caveat_does_not_vary_with_the_data(ensemble):
+    """It states a limit of the viewer, not a finding about this ensemble.
+
+    Resolution is not in a map header and the FSC that would measure it needs a
+    reference no session has, so any per-ensemble wording here would be a
+    measurement we did not make. Two ensembles with deliberately different
+    density statistics must therefore get the identical sentence — if this ever
+    becomes conditional on the frames, that is the defect, and this is what
+    catches it.
+    """
+    port_tight, tight = ensemble("tight", rms=(0.5, 0.5, 0.5))
+    port_spread, spread = ensemble("spread", rms=(0.2, 0.9, 2.4))
+
+    tight_report = render(latent_traverse_view(tight), port=port_tight).report
+    spread_report = render(latent_traverse_view(spread), port=port_spread).report
+
+    # The sigma spread genuinely differs between them — otherwise this test
+    # would pass on two ensembles the tool could not tell apart anyway.
+    assert "differ by" in spread_report
+    assert "barely differ" in tight_report
+
+    assert FRAME_QUALITY_LEGEND in tight_report
+    assert FRAME_QUALITY_LEGEND in spread_report
+
+
+def test_the_frame_quality_caveat_makes_no_absence_claim():
+    """It is new text under an existing invariant, so I3 must still hold."""
+    assert contains_absence_claim(FRAME_QUALITY_LEGEND) is None
 
 
 def test_the_absence_detector_catches_its_phrases():
