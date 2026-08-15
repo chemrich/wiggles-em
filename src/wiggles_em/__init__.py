@@ -61,6 +61,7 @@ from wiggles_em.populations import Populations, WeightSource
 from wiggles_em.port import BridgePort, FakePort, PortError, PymolPort, SendRequestPort
 from wiggles_em.provenance import Provenance, declare, provenance_of
 from wiggles_em.qscore import qscore_view
+from wiggles_em.recovar import DensityJob, read_deconvolved_weights, read_density_job
 
 #: The tool-level entry points a host exposes to its users, by name.
 #:
@@ -132,6 +133,11 @@ __all__ = [  # noqa: RUF022
     # first so a view has something honest to render.
     "Populations",
     "WeightSource",
+    # RECOVAR is the one method shipping a deconvolved density today, so it
+    # is the first honest source of a weight. Readers, not tools.
+    "DensityJob",
+    "read_density_job",
+    "read_deconvolved_weights",
     "Atom",
     "fetch_atoms",
     "clear_stash",
