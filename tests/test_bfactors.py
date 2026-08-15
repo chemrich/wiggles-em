@@ -434,3 +434,66 @@ def test_a_reused_backend_reports_each_render_afresh():
         "the corrected note was swallowed, so the report still claims the "
         f"originals are gone while they are held: {backend.notes}"
     )
+
+
+def test_each_render_reports_even_when_the_note_is_identical():
+    """The half of the K1 fix that `test_a_reused_backend_reports_each_render_afresh`
+    cannot see.
+
+    That test renders two *different* states, so the note text differs between
+    them — and the text keying alone is enough to let the second through, with
+    or without the per-render reset. Each half of the fix rescues it, so
+    neither is guarded. Removing `_noted.clear()` as redundant leaves the suite
+    green, and it is not redundant: rendering the *same* view twice on one
+    backend then emits the B-factor warning once, so the second render
+    overwrites B-factors and says nothing about it.
+
+    Reproduced before this test existed — render1=1 note, render2=0.
+    """
+    from wiggles_em.backends.pymol import PymolBackend
+    from wiggles_em.scene import ColorByScalar, ScalarField, Scene, Sel
+
+    rows = [("A", "1", "MET", "CA", "", 1.0, 11.0, "m", 1)]
+    port = FakePort({"iterate_to_list": rows})
+    scene = Scene(
+        [ColorByScalar(Sel.obj("m"), ScalarField.per_atom([(("m", "1"), 0.5)]), (0.0, 1.0))]
+    )
+
+    backend = PymolBackend(port, preserve_bfactors=True, normalised=None)
+    backend.render(scene)
+    after_first = len(backend.notes)
+    backend.render(scene)
+    from_second = len(backend.notes) - after_first
+
+    assert after_first >= 1, "the first render said nothing about the B-factors"
+    assert from_second == after_first, (
+        f"the second render emitted {from_second} note(s) against the first "
+        f"render's {after_first}. An identical note is still a note the second "
+        f"render owes: it overwrote the B-factor column too."
+    )
+
+
+def test_two_different_notes_for_one_object_both_survive():
+    """The other half of the K1 key, tested at the mechanism rather than
+    through a view.
+
+    Keying the ledger on `(object, text)` rather than the object alone is
+    **defensive**: no view currently emits two *different* notes for one object
+    in a single render, so reverting it leaves the suite green. It matters the
+    moment one does — the second note would be swallowed, and the note for an
+    object changes when its state does, so what survives would be the stale
+    one. That is the false claim these notes exist to prevent.
+
+    `9381dbe` reported this half as mutation-checked. It no longer is through
+    any view, because the per-render reset rescues the case that test uses.
+    """
+    from wiggles_em.backends.pymol import PymolBackend
+
+    backend = PymolBackend(FakePort(), preserve_bfactors=True, normalised=None)
+    backend._note_once("m", "  the originals are gone from this session.")
+    backend._note_once("m", "  the originals are held in this session.")
+    backend._note_once("m", "  the originals are held in this session.")
+
+    assert len(backend.notes) == 2, (
+        f"a second, different note for the same object was swallowed: {backend.notes}"
+    )

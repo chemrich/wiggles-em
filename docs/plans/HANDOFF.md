@@ -200,7 +200,23 @@ do latent traversals until Mol\* grows a movie timeline.
    take a `MapStats` here and a `MapHeader` upstream, from this morning's
    change. They print under "Known divergences" every run rather than being
    exempted, and the success line says so instead of claiming agreement.
-5. **`9381dbe` is unreviewed**, if anyone wants a tenth round.
+5. ~~**`9381dbe` is unreviewed**~~ **REVIEWED 2026-08-15** — the tenth round,
+   against current `main` rather than the commit in isolation, since a defect
+   fixed since is not worth reporting. The round-9 fixes hold: the putty
+   duplicate still collapses to one note, and both `test_localres` remedy
+   assertions still fail when the remedy is withheld or stops naming the
+   literal command.
+
+   **One real finding.** `9381dbe` reported K1 as mutation-checked, and on
+   current `main` **both halves survived** — each rescues the other's test, so
+   neither was guarded. Removing `_noted.clear()` as redundant leaves the suite
+   green and makes a reused backend emit *zero* notes on a second render of the
+   same view: B-factors overwritten, nothing said. Both halves now have their
+   own guard, each mutation-verified.
+
+   Also: `_note_once`'s docstring claimed "once per object" while keying on
+   `(object, text)`, and `render_op` — a second public door that does not reset
+   the ledger — had no docstring saying it is not an entry point.
 6. Ten items in `PUBLICATION-GATE.md` still gate the compendium prose.
 
 ---

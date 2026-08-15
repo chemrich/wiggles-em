@@ -302,6 +302,13 @@ class PymolBackend:
             self.render_op(op)
 
     def render_op(self, op: SceneOp) -> None:
+        """Lower one op. **Not an entry point** — call :meth:`render`.
+
+        The per-render note ledger is reset by ``render``, so driving a scene
+        by calling this in a loop would carry one render's ledger into the
+        next, which is the defect ``9381dbe`` fixed arriving through a second
+        door. Nothing calls it that way today; this says why not to.
+        """
         handler = getattr(self, f"_{type(op).__name__.lower()}", None)
         if handler is None:
             raise Refused(f"{type(op).__name__} has no PyMOL lowering")
@@ -332,7 +339,12 @@ class PymolBackend:
         return f"b={_STORED}.get({key_expr}, b)"
 
     def _note_once(self, obj: str, note: str) -> None:
-        """Append a B-factor note, at most once per object per render."""
+        """Append a B-factor note, at most once per ``(object, text)`` per render.
+
+        Not once per *object*: a second, **different** note for the same object
+        is still emitted. The note for an object changes when its state does,
+        and suppressing by object alone kept the stale one.
+        """
         if (obj, note) in self._noted:
             return
         self._noted.add((obj, note))
