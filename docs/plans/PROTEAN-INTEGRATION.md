@@ -270,9 +270,11 @@ like the other. A vocabulary audit is not an interface audit.
 5. **`altloc_view`, then `ensemble_spread_view`.**
 6. **Refusals, with tests.** A scene containing `Frames` must refuse with a
    message naming the missing capability, not render three-quarters of itself.
-7. **Re-point `check_spec.py`** (phase 6) once two consumers exist, with
-   per-consumer coverage as a separate, weaker check — a tool protean cannot
-   host is a known gap, not spec drift.
+7. ~~**Re-point `check_spec.py`** (phase 6)~~ **DONE 2026-08-15.** Reconciles
+   against `wiggles_em.TOOLS`; per-consumer coverage is reported, never failed
+   on. protean shows 0/13 with a reason — it hosts a Scene backend and
+   registers no tool wrappers yet — which is the honest reading of step 3
+   being open.
 
 ## What protean asks of wiggles-em
 

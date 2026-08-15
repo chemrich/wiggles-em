@@ -301,9 +301,13 @@ now the better extraction source than anything this plan has been using.
    ready", it was "PyPI forbids URL dependencies", and only one of the two
    consumers is on PyPI.
 
-6. **Re-point `check_spec.py`.** It reconciles `SPEC.md` against what *MCPymol
-   registers* today. It should reconcile against what **`wiggles_em` exposes**,
-   with per-consumer coverage as a separate, weaker check.
+6. ~~**Re-point `check_spec.py`.**~~ **DONE 2026-08-15** (wiggles `70cdf8b`,
+   wiggles-em `82480cf`). It reconciles `SPEC.md` against `wiggles_em.TOOLS`,
+   which the package declares and its own suite keeps complete; per-consumer
+   coverage is reported and never fails, because a tool a host cannot offer is
+   a gap in that host. It found four real drifts on its first run — tier 3 had
+   shipped while `SPEC.md` still called `load_ensemble`,
+   `latent_traverse_view`, `deformation_view` and `composition_view` unbuilt.
 
 ---
 
