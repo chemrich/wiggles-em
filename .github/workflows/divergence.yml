@@ -47,7 +47,15 @@ jobs:
         # pulls the MCP server's stack. It passed locally only because that
         # venv already had the full tree installed, which is the difference
         # between a check and a check that has been run where it will run.
-        run: uv pip install 'mcpymol @ git+https://github.com/chemrich/MCPymol@main'
+        #
+        # **`mcp<2` and `fastmcp<4`.** MCPymol only sets lower bounds on these,
+        # and installing from git ignores its lockfile, so this job takes
+        # whatever is newest. fastmcp 4.0 (2026-08-31) pulls in mcp 2.x, which
+        # removed `mcp.server.fastmcp`. Every run from 2026-09-07 on then died
+        # importing `mcpymol.app`, before the audit could compare anything.
+        # MCPymol pins the same versions in its own lockfile. Drop these caps
+        # once MCPymol either supports mcp 2 or caps the versions itself.
+        run: uv pip install 'mcpymol @ git+https://github.com/chemrich/MCPymol@main' 'mcp<2' 'fastmcp<4'
 
       - name: confirm the comparison can actually be made
         # Without this, a failure to install reads downstream as "no
