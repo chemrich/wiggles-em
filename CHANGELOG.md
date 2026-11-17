@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `qscore_view` reads mmCIF validation reports as well as XML, ported from
+  MCPymol 7fcb911. `parse_validation_cif` joins
+  `pdbx_vrpt_model_instance_map_fitting` to `pdbx_vrpt_model_instance` and
+  keys residues by author chain and number, exactly as `parse_validation_xml`
+  does, so one entry reads the same in either format (checked live on 10EC).
+  `parse_validation_report` picks the format from the file's content, not its
+  extension, because downloaded reports get renamed. Standard library only.
+  The parsers are byte-identical to upstream's, which is what the
+  `divergence` audit checks.
 - `wiggles_em.TOOLS` — the tool-level entry points, declared rather than
   inferred. `__all__` also carries value types, conversions and plumbing, and
   no rule separates a tool from those by shape: `map_info` and
